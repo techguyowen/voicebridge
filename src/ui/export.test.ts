@@ -39,18 +39,31 @@ describe("formatTranscript", () => {
 });
 
 describe("copyToClipboard and copyNotesToClipboard", () => {
-  const originalClipboard = navigator.clipboard;
+  const originalNavigator = typeof globalThis.navigator !== "undefined" ? globalThis.navigator : undefined;
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    if (typeof globalThis.navigator === "undefined") {
+      Object.defineProperty(globalThis, "navigator", {
+        value: {},
+        configurable: true,
+        writable: true,
+      });
+    }
   });
 
   afterEach(() => {
-    Object.defineProperty(navigator, "clipboard", {
-      value: originalClipboard,
-      configurable: true,
-      writable: true,
-    });
+    if (typeof originalNavigator === "undefined") {
+      try {
+        delete (globalThis as unknown as { navigator?: unknown }).navigator;
+      } catch {}
+    } else {
+      Object.defineProperty(globalThis, "navigator", {
+        value: originalNavigator,
+        configurable: true,
+        writable: true,
+      });
+    }
   });
 
   it("copies using navigator.clipboard when available", async () => {
