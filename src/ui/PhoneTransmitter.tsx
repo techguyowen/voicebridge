@@ -26,6 +26,11 @@ export function PhoneTransmitter(): React.JSX.Element {
   const pinRef = useRef(pin);
   const micModeRef = useRef(micMode);
 
+  // Turn management: Maintain a single stable ID for active speaking turn
+  const currentTurnIdRef = useRef<string | null>(null);
+  const turnStartMsRef = useRef<number>(Date.now());
+  const lastSpokenTextRef = useRef<string>("");
+
   useEffect(() => {
     isTransmittingRef.current = isTransmitting;
   }, [isTransmitting]);
@@ -35,20 +40,47 @@ export function PhoneTransmitter(): React.JSX.Element {
     if (pin) localStorage.setItem("alt.phone.pin", pin);
   }, [pin]);
 
+  const finalizeActiveTurn = () => {
+    if (currentTurnIdRef.current && lastSpokenTextRef.current) {
+      const turnId = currentTurnIdRef.current;
+      const text = lastSpokenTextRef.current;
+      const senderId = name.toLowerCase().replace(/\s+/g, "_") || "family_member";
+      const now = Date.now();
+
+      syncRef.current?.send({
+        type: "utterance",
+        senderName: name,
+        senderColor: color,
+        pin: pinRef.current,
+        utterance: {
+          id: turnId,
+          text,
+          startMs: turnStartMsRef.current,
+          endMs: now,
+          speakerId: senderId,
+          final: true,
+        },
+      });
+    }
+    currentTurnIdRef.current = null;
+    lastSpokenTextRef.current = "";
+  };
+
   useEffect(() => {
     micModeRef.current = micMode;
     localStorage.setItem("alt.phone.micMode", micMode);
     // Adjust transmission default when mode changes
     if (micActive) {
-      if (micMode === "temp-mute") {
-        setIsTransmitting(true);
-      } else {
+      if (micMode === "ptt") {
+        finalizeActiveTurn();
         setIsTransmitting(false);
+      } else {
+        setIsTransmitting(true);
       }
     }
   }, [micMode, micActive]);
 
-  // Multi-device sync over WebRTC DataConnection (and BroadcastChannel)
+  // Multi-device sync over WebSocket relay via ntfy.sh (and BroadcastChannel fallback)
   useEffect(() => {
     const activePin = pinRef.current.trim();
     const sync = new MultiDeviceSync(room, { isHost: false, pin: activePin });
@@ -66,6 +98,7 @@ export function PhoneTransmitter(): React.JSX.Element {
     });
 
     return () => {
+      finalizeActiveTurn();
       sync.send({
         type: "leave",
         senderName: name,
@@ -118,12 +151,10 @@ export function PhoneTransmitter(): React.JSX.Element {
 
       rec.onstart = () => {
         setMicActive(true);
-        if (micModeRef.current === "temp-mute") {
-          setIsTransmitting(true);
-        } else if (micModeRef.current === "latch") {
-          setIsTransmitting(true);
-        } else {
+        if (micModeRef.current === "ptt") {
           setIsTransmitting(false);
+        } else {
+          setIsTransmitting(true);
         }
         vibrate(60);
       };
@@ -143,23 +174,38 @@ export function PhoneTransmitter(): React.JSX.Element {
         const text = (finalSegment || interim).trim();
         if (text) {
           setLastSpoken(text);
+          lastSpokenTextRef.current = text;
+
           // Only transmit to host if mic is unmuted!
           if (isTransmittingRef.current) {
+            const senderId = name.toLowerCase().replace(/\s+/g, "_") || "family_member";
+            if (!currentTurnIdRef.current) {
+              turnStartMsRef.current = Date.now();
+              currentTurnIdRef.current = `phone-${senderId}-${turnStartMsRef.current}`;
+            }
+            const turnId = currentTurnIdRef.current;
             const now = Date.now();
+            const isFinal = Boolean(finalSegment);
+
             syncRef.current?.send({
               type: "utterance",
               senderName: name,
               senderColor: color,
               pin: pinRef.current,
               utterance: {
-                id: `phone-${Date.now()}`,
+                id: turnId,
                 text,
-                startMs: now - 1000,
+                startMs: turnStartMsRef.current,
                 endMs: now,
-                speakerId: name.toLowerCase().replace(/\s+/g, "_"),
-                final: Boolean(finalSegment),
+                speakerId: senderId,
+                final: isFinal,
               },
             });
+
+            if (isFinal) {
+              currentTurnIdRef.current = null;
+              lastSpokenTextRef.current = "";
+            }
           }
         }
       };
@@ -176,6 +222,7 @@ export function PhoneTransmitter(): React.JSX.Element {
             rec.start();
           } catch {}
         } else {
+          finalizeActiveTurn();
           setMicActive(false);
           setIsTransmitting(false);
         }
@@ -190,6 +237,7 @@ export function PhoneTransmitter(): React.JSX.Element {
   };
 
   const stopMic = () => {
+    finalizeActiveTurn();
     setMicActive(false);
     setIsTransmitting(false);
     if (recRef.current) {
@@ -201,38 +249,50 @@ export function PhoneTransmitter(): React.JSX.Element {
     vibrate(40);
   };
 
-  // Button interaction handlers depending on MicMode
-  const handlePointerDown = () => {
-    if (!micActive) {
-      startMic();
-      return;
-    }
-
-    if (micMode === "ptt") {
-      setIsTransmitting(true);
-      vibrate(40);
-    } else if (micMode === "temp-mute") {
-      // Cough button: hold to temporarily mute
+  // Dedicated button interactions depending on MicMode
+  const handleLatchToggle = () => {
+    if (isTransmitting) {
+      finalizeActiveTurn();
       setIsTransmitting(false);
+      vibrate(40);
+    } else {
+      setIsTransmitting(true);
       vibrate(40);
     }
   };
 
-  const handlePointerUp = () => {
-    if (!micActive) return;
+  const handlePttDown = (e: React.PointerEvent) => {
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+    setIsTransmitting(true);
+    vibrate(40);
+  };
 
-    if (micMode === "ptt") {
-      setIsTransmitting(false);
-      vibrate(20);
-    } else if (micMode === "temp-mute") {
-      // Releasing cough button resumes transmission
-      setIsTransmitting(true);
-      vibrate(20);
-    } else if (micMode === "latch") {
-      // Toggle
-      setIsTransmitting((prev) => !prev);
-      vibrate(40);
-    }
+  const handlePttUp = (e: React.PointerEvent) => {
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+    finalizeActiveTurn();
+    setIsTransmitting(false);
+    vibrate(20);
+  };
+
+  const handleTempMuteDown = (e: React.PointerEvent) => {
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+    finalizeActiveTurn();
+    setIsTransmitting(false);
+    vibrate(40);
+  };
+
+  const handleTempMuteUp = (e: React.PointerEvent) => {
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+    setIsTransmitting(true);
+    vibrate(20);
   };
 
   const handleNameChange = (newName: string) => {
@@ -324,64 +384,129 @@ export function PhoneTransmitter(): React.JSX.Element {
 
       {/* Main Big Mic Control Button */}
       <div style={{ textAlign: "center", margin: "24px 0" }}>
-        <button
-          type="button"
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          style={{
-            width: "100%",
-            minHeight: "120px",
-            fontSize: "26px",
-            fontWeight: "bold",
-            borderRadius: "20px",
-            backgroundColor: !micActive
-              ? "#222"
-              : isTransmitting
-              ? "#ff3b30"
-              : "#2c2c2e",
-            color: !micActive ? "#fff" : isTransmitting ? "#ffffff" : "#8e8e93",
-            border: isTransmitting ? "4px solid #ffffff" : "3px solid #555",
-            cursor: "pointer",
-            boxShadow: isTransmitting ? "0 0 30px rgba(255, 59, 48, 0.8)" : "none",
-            userSelect: "none",
-            touchAction: "manipulation",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            transition: "all 0.1s ease-in-out",
-          }}
-        >
-          {!micActive ? (
-            <>
-              <span>🎙️ START MICROPHONE</span>
-              <span style={{ fontSize: "14px", fontWeight: "normal", opacity: 0.8 }}>Tap to enable mic access</span>
-            </>
-          ) : micMode === "ptt" ? (
-            <>
-              <span>{isTransmitting ? "🔴 TRANSMITTING..." : "🎙️ HOLD TO TALK"}</span>
-              <span style={{ fontSize: "14px", fontWeight: "normal" }}>
-                {isTransmitting ? "Release to mute" : "Press and hold button while speaking"}
-              </span>
-            </>
-          ) : micMode === "temp-mute" ? (
-            <>
-              <span>{isTransmitting ? "🔴 LIVE TRANSMITTING" : "🔇 MUTED (COUGHING)"}</span>
-              <span style={{ fontSize: "14px", fontWeight: "normal" }}>
-                {isTransmitting ? "Press and hold to temporarily mute (cough button)" : "Release to resume transmitting"}
-              </span>
-            </>
-          ) : (
-            <>
-              <span>{isTransmitting ? "🔴 LIVE — TAP TO MUTE" : "⚪ MUTED — TAP TO SPEAK"}</span>
-              <span style={{ fontSize: "14px", fontWeight: "normal" }}>
-                {isTransmitting ? "Your speech is live on the table screen" : "Mic is muted. Tap to go live"}
-              </span>
-            </>
-          )}
-        </button>
+        {!micActive ? (
+          <button
+            type="button"
+            onClick={startMic}
+            style={{
+              width: "100%",
+              minHeight: "120px",
+              fontSize: "24px",
+              fontWeight: "bold",
+              borderRadius: "20px",
+              backgroundColor: "#222",
+              color: "#fff",
+              border: "3px solid #555",
+              cursor: "pointer",
+              userSelect: "none",
+              touchAction: "manipulation",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+            }}
+          >
+            <span>🎙️ START MICROPHONE</span>
+            <span style={{ fontSize: "14px", fontWeight: "normal", opacity: 0.8 }}>
+              Tap to enable mic access
+            </span>
+          </button>
+        ) : micMode === "latch" ? (
+          <button
+            type="button"
+            onClick={handleLatchToggle}
+            style={{
+              width: "100%",
+              minHeight: "130px",
+              fontSize: "24px",
+              fontWeight: "bold",
+              borderRadius: "20px",
+              backgroundColor: isTransmitting ? "#ff3b30" : "#2c2c2e",
+              color: isTransmitting ? "#ffffff" : "#8e8e93",
+              border: isTransmitting ? "4px solid #ffffff" : "3px solid #555",
+              cursor: "pointer",
+              boxShadow: isTransmitting ? "0 0 30px rgba(255, 59, 48, 0.8)" : "none",
+              userSelect: "none",
+              touchAction: "manipulation",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              transition: "all 0.1s ease-in-out",
+            }}
+          >
+            <span>{isTransmitting ? "🔴 LIVE — TAP TO MUTE" : "⚪ MUTED — TAP TO SPEAK"}</span>
+            <span style={{ fontSize: "14px", fontWeight: "normal" }}>
+              {isTransmitting ? "Your speech is live on the table screen" : "Mic is muted. Tap to go live"}
+            </span>
+          </button>
+        ) : micMode === "ptt" ? (
+          <button
+            type="button"
+            onPointerDown={handlePttDown}
+            onPointerUp={handlePttUp}
+            onPointerCancel={handlePttUp}
+            style={{
+              width: "100%",
+              minHeight: "130px",
+              fontSize: "24px",
+              fontWeight: "bold",
+              borderRadius: "20px",
+              backgroundColor: isTransmitting ? "#ff3b30" : "#2c2c2e",
+              color: isTransmitting ? "#ffffff" : "#8e8e93",
+              border: isTransmitting ? "4px solid #ffffff" : "3px solid #555",
+              cursor: "pointer",
+              boxShadow: isTransmitting ? "0 0 30px rgba(255, 59, 48, 0.8)" : "none",
+              userSelect: "none",
+              touchAction: "none",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              transition: "all 0.1s ease-in-out",
+            }}
+          >
+            <span>{isTransmitting ? "🔴 TRANSMITTING..." : "🎙️ HOLD TO TALK"}</span>
+            <span style={{ fontSize: "14px", fontWeight: "normal" }}>
+              {isTransmitting ? "Release to mute" : "Press and hold button while speaking"}
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onPointerDown={handleTempMuteDown}
+            onPointerUp={handleTempMuteUp}
+            onPointerCancel={handleTempMuteUp}
+            style={{
+              width: "100%",
+              minHeight: "130px",
+              fontSize: "24px",
+              fontWeight: "bold",
+              borderRadius: "20px",
+              backgroundColor: isTransmitting ? "#ff3b30" : "#2c2c2e",
+              color: isTransmitting ? "#ffffff" : "#8e8e93",
+              border: isTransmitting ? "4px solid #ffffff" : "3px solid #555",
+              cursor: "pointer",
+              boxShadow: isTransmitting ? "0 0 30px rgba(255, 59, 48, 0.8)" : "none",
+              userSelect: "none",
+              touchAction: "none",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              transition: "all 0.1s ease-in-out",
+            }}
+          >
+            <span>{isTransmitting ? "🔴 LIVE TRANSMITTING" : "🔇 MUTED (COUGHING)"}</span>
+            <span style={{ fontSize: "14px", fontWeight: "normal" }}>
+              {isTransmitting ? "Press and hold to temporarily mute (cough button)" : "Release to resume transmitting"}
+            </span>
+          </button>
+        )}
 
         {micActive && (
           <button

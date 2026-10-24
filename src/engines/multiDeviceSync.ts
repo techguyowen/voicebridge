@@ -1,4 +1,3 @@
-import { Peer, type DataConnection } from "peerjs";
 import type { SyncMessage } from "../types";
 
 export type { SyncMessage };
@@ -14,135 +13,165 @@ export class MultiDeviceSync {
   private room: string;
   private pin: string;
   private isHost: boolean;
+
+  public getIsHost(): boolean {
+    return this.isHost;
+  }
+  private clientId: string;
   private channel: BroadcastChannel | null = null;
+  private ws: WebSocket | null = null;
   private handlers = new Set<SyncMessageHandler>();
   private statusHandlers = new Set<SyncStatusHandler>();
-  private peer: Peer | null = null;
-  private hostConnections = new Set<DataConnection>();
-  private clientConnection: DataConnection | null = null;
+  private messageQueue: SyncMessage[] = [];
+  private lastJoinMessage: SyncMessage | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
   private isDestroyed = false;
+  private currentStatus = "Connecting to tablet...";
+  private seenMessages = new Map<string, number>();
 
   constructor(room: string, options?: MultiDeviceSyncOptions) {
     this.room = room;
     this.pin = options?.pin || "";
     this.isHost = options?.isHost ?? true;
+    this.clientId = `client-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-    // 1. BroadcastChannel (for local tab communication / offline fallback)
+    const cleanRoom = (this.room || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "default";
+    const cleanPin = (this.pin || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+
+    // 1. BroadcastChannel (for local tab communication / same device / offline fallback)
     if (typeof BroadcastChannel !== "undefined") {
       try {
-        this.channel = new BroadcastChannel(`alt-room-${room}`);
+        const channelName = cleanPin ? `alt-room-${cleanRoom}-${cleanPin}` : `alt-room-${cleanRoom}`;
+        this.channel = new BroadcastChannel(channelName);
         this.channel.onmessage = (event) => {
-          const msg = event.data as SyncMessage;
-          if (msg && msg.room === this.room) {
+          if (this.isDestroyed) return;
+          const msg = event.data as SyncMessage & { _senderId?: string };
+          if (msg && msg.room === this.room && (!msg._senderId || msg._senderId !== this.clientId)) {
             this.notifyMessage(msg);
           }
         };
       } catch {}
     }
 
-    // 2. PeerJS WebRTC (for real cross-device communication: phones -> tablet)
-    if (typeof window !== "undefined" && typeof RTCPeerConnection !== "undefined") {
-      this.initPeer();
+    // 2. WebSocket relay via ntfy.sh (for zero-NAT, cross-network communication)
+    if (typeof WebSocket !== "undefined") {
+      this.initWebSocket();
     }
   }
 
-  private getHostPeerId(): string {
-    const cleanRoom = this.room.replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
-    const cleanPin = (this.pin || "").replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
+  public getTopic(): string {
+    const cleanRoom = (this.room || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "default";
+    const cleanPin = (this.pin || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
     return `vb-${cleanRoom}-${cleanPin}`;
   }
 
   private setStatus(status: string): void {
+    this.currentStatus = status;
     this.statusHandlers.forEach((h) => h(status));
   }
 
-  private initPeer(): void {
+  private initWebSocket(): void {
+    if (this.isDestroyed) return;
+    const topic = this.getTopic();
+    const wsUrl = `wss://ntfy.sh/${topic}/ws`;
+
     try {
-      const hostPeerId = this.getHostPeerId();
+      this.setStatus(this.reconnectAttempts > 0 ? "Reconnecting..." : "Connecting to tablet...");
+      const ws = new WebSocket(wsUrl);
+      this.ws = ws;
 
-      if (this.isHost) {
-        // iPad / Host: Listen on fixed ID vb-${room}-${pin}
-        this.peer = new Peer(hostPeerId);
+      ws.onopen = () => {
+        if (this.isDestroyed) {
+          ws.close();
+          return;
+        }
+        this.reconnectAttempts = 0;
+        this.setStatus("Connected to tablet");
 
-        this.peer.on("open", () => {
-          this.setStatus(`Host peer ready (${hostPeerId})`);
-        });
+        // Automatically resend the join packet on socket connect/reconnect so the host ALWAYS registers the connected phone
+        if (this.lastJoinMessage) {
+          void this.publishRemote(this.lastJoinMessage);
+        }
 
-        this.peer.on("connection", (conn) => {
-          this.hostConnections.add(conn);
-          conn.on("data", (data) => {
-            const msg = data as SyncMessage;
-            if (msg && msg.room === this.room) {
+        // Flush any messages queued before socket opened
+        while (this.messageQueue.length > 0) {
+          const queuedMsg = this.messageQueue.shift();
+          if (queuedMsg) {
+            if (this.lastJoinMessage && queuedMsg === this.lastJoinMessage) {
+              continue;
+            }
+            void this.publishRemote(queuedMsg);
+          }
+        }
+      };
+
+      ws.onmessage = (event) => {
+        if (this.isDestroyed) return;
+        try {
+          const data = typeof event.data === "string" ? JSON.parse(event.data) : null;
+          if (data && data.event === "message" && data.message) {
+            const msg = JSON.parse(data.message) as SyncMessage & { _senderId?: string };
+            if (msg && msg.room === this.room && (!msg._senderId || msg._senderId !== this.clientId)) {
               this.notifyMessage(msg);
             }
-          });
-          conn.on("close", () => {
-            this.hostConnections.delete(conn);
-          });
-          conn.on("error", () => {
-            this.hostConnections.delete(conn);
-          });
-        });
+          }
+        } catch {}
+      };
 
-        this.peer.on("error", (err) => {
-          this.setStatus(`Host peer notice: ${err.type || err.message}`);
-        });
-      } else {
-        // Phone / Client: Connect to host peer ID
-        this.peer = new Peer();
-        this.setStatus("Connecting to tablet...");
+      ws.onerror = () => {
+        // onclose will trigger reconnect
+      };
 
-        this.peer.on("open", () => {
-          this.connectToHost(hostPeerId);
-        });
-
-        this.peer.on("error", (err) => {
-          this.setStatus(`Connection error: ${err.type || err.message}`);
-        });
+      ws.onclose = () => {
+        if (this.isDestroyed) return;
+        this.setStatus("Reconnecting...");
+        this.scheduleReconnect();
+      };
+    } catch {
+      if (!this.isDestroyed) {
+        this.setStatus("Reconnecting...");
+        this.scheduleReconnect();
       }
-    } catch (err) {
-      this.setStatus(`Peer init failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  private connectToHost(hostPeerId: string): void {
-    if (!this.peer || this.isDestroyed) return;
-    try {
-      const conn = this.peer.connect(hostPeerId, { reliable: true });
-      this.clientConnection = conn;
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null || this.isDestroyed) return;
+    this.reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(1.5, Math.min(this.reconnectAttempts, 5)), 10000);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.isDestroyed) {
+        this.initWebSocket();
+      }
+    }, delay);
+  }
 
-      conn.on("open", () => {
-        this.setStatus("Connected to tablet (Peer)");
-      });
-
-      conn.on("data", (data) => {
-        const msg = data as SyncMessage;
-        if (msg && msg.room === this.room) {
-          this.notifyMessage(msg);
-        }
-      });
-
-      conn.on("close", () => {
-        this.setStatus("Disconnected from tablet");
-        this.clientConnection = null;
-        if (!this.isDestroyed) {
-          setTimeout(() => {
-            if (!this.clientConnection && !this.isDestroyed) {
-              this.connectToHost(hostPeerId);
-            }
-          }, 3000);
-        }
-      });
-
-      conn.on("error", () => {
-        this.setStatus("Error connecting to tablet");
-      });
-    } catch {
-      this.setStatus("Failed to connect to tablet");
+  private isDuplicate(msg: SyncMessage): boolean {
+    const now = Date.now();
+    for (const [k, timestamp] of this.seenMessages.entries()) {
+      if (now - timestamp > 10000) {
+        this.seenMessages.delete(k);
+      }
     }
+
+    let key: string;
+    if (msg.type === "utterance" && msg.utterance) {
+      key = `u:${msg.utterance.id}:${msg.utterance.text}:${msg.utterance.final}`;
+    } else {
+      key = `${msg.type}:${msg.senderName}:${msg.room}:${msg.pin || ""}`;
+    }
+
+    if (this.seenMessages.has(key)) {
+      return true;
+    }
+    this.seenMessages.set(key, now);
+    return false;
   }
 
   private notifyMessage(msg: SyncMessage): void {
+    if (this.isDuplicate(msg)) return;
     this.handlers.forEach((h) => h(msg));
   }
 
@@ -153,31 +182,46 @@ export class MultiDeviceSync {
 
   onStatus(handler: SyncStatusHandler): () => void {
     this.statusHandlers.add(handler);
+    handler(this.currentStatus);
     return () => this.statusHandlers.delete(handler);
   }
 
+  private async publishRemote(msg: SyncMessage & { _senderId?: string }): Promise<void> {
+    try {
+      const topic = this.getTopic();
+      if (typeof fetch !== "undefined") {
+        await fetch(`https://ntfy.sh/${topic}`, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify(msg),
+        });
+      }
+    } catch {}
+  }
+
   send(msg: Omit<SyncMessage, "room">): void {
-    const fullMsg: SyncMessage = { ...msg, room: this.room, pin: msg.pin || this.pin };
-    // Send via BroadcastChannel (local tabs fallback)
+    const fullMsg: SyncMessage & { _senderId: string } = {
+      ...msg,
+      room: this.room,
+      pin: msg.pin || this.pin,
+      _senderId: this.clientId,
+    };
+
+    // If join packet, remember it so connect/reconnect automatically resends it
+    if (fullMsg.type === "join") {
+      this.lastJoinMessage = fullMsg;
+    }
+
+    // 1. Immediate BroadcastChannel delivery for local tabs / offline fallback
     try {
       this.channel?.postMessage(fullMsg);
     } catch {}
 
-    // Send via PeerJS WebRTC
-    if (this.isHost) {
-      this.hostConnections.forEach((conn) => {
-        if (conn.open) {
-          try {
-            conn.send(fullMsg);
-          } catch {}
-        }
-      });
+    // 2. ntfy.sh relay delivery: if socket is open, publish remotely; otherwise queue it
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      void this.publishRemote(fullMsg);
     } else {
-      if (this.clientConnection && this.clientConnection.open) {
-        try {
-          this.clientConnection.send(fullMsg);
-        } catch {}
-      }
+      this.messageQueue.push(fullMsg);
     }
   }
 
@@ -185,30 +229,29 @@ export class MultiDeviceSync {
     this.isDestroyed = true;
     this.handlers.clear();
     this.statusHandlers.clear();
+    this.messageQueue = [];
+    this.lastJoinMessage = null;
+    this.seenMessages.clear();
+
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     try {
       this.channel?.close();
     } catch {}
     this.channel = null;
 
-    if (this.clientConnection) {
+    if (this.ws) {
       try {
-        this.clientConnection.close();
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
+        this.ws.onclose = null;
+        this.ws.close();
       } catch {}
-      this.clientConnection = null;
-    }
-
-    this.hostConnections.forEach((conn) => {
-      try {
-        conn.close();
-      } catch {}
-    });
-    this.hostConnections.clear();
-
-    if (this.peer) {
-      try {
-        this.peer.destroy();
-      } catch {}
-      this.peer = null;
+      this.ws = null;
     }
   }
 }

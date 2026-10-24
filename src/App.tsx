@@ -222,19 +222,27 @@ export default function App(): React.JSX.Element {
     const sync = new MultiDeviceSync(settings.roomCode, { isHost: true, pin: settings.roomPin });
     const unbind = sync.onMessage((msg) => {
       // Check: If msg.pin !== settings.roomPin, ignore/drop the packet.
-      if (msg.pin !== settings.roomPin) return;
+      const hostPin = (settings.roomPin || "").trim().toLowerCase();
+      const msgPin = (msg.pin || "").trim().toLowerCase();
+      if (hostPin && msgPin !== hostPin) return;
 
-      if ((msg.type === "join" || msg.type === "utterance") && msg.senderName) {
+      const speakerId = msg.utterance?.speakerId || (msg.senderName ? msg.senderName.toLowerCase().replace(/\s+/g, "_") : "family_member");
+      const speakerName = msg.senderName || (msg.utterance?.speakerId ? msg.utterance.speakerId : "Family Member");
+
+      if (msg.type === "join" || msg.type === "utterance") {
         upsertSpeaker({
-          id: msg.utterance?.speakerId || msg.senderName.toLowerCase().replace(/\s+/g, "_"),
-          name: msg.senderName,
+          id: speakerId,
+          name: speakerName,
           color: msg.senderColor || "#4fc3f7",
           position: "none",
         });
       }
 
       if (msg.type === "utterance" && msg.utterance) {
-        addOrUpdateUtterance(msg.utterance);
+        addOrUpdateUtterance({
+          ...msg.utterance,
+          speakerId: msg.utterance.speakerId || speakerId,
+        });
       }
     });
     return () => {

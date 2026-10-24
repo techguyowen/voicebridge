@@ -1,8 +1,10 @@
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Utterance } from "../types";
 import { toHtml, toMarkdown } from "./ExportButtons";
 import { groupUtterancesByTurn, highlightAlertWords } from "./TranscriptList";
+import { VoxStreamDisplay } from "./VoxStreamDisplay";
 import {
   addOrUpdateUtterance,
   addSpeaker,
@@ -19,6 +21,7 @@ import {
   loadSettings,
   loadTranscript,
   persist,
+  setListening,
   TRANSCRIPT_KEY,
   regenerateRoomSecurity,
   relabel,
@@ -1101,5 +1104,58 @@ describe("Dynamic Speaker Management", () => {
   });
 });
 
+describe("VoxStreamDisplay with connected phone speech", () => {
+  it("displays interim speech from connected phones even when host microphone is idle (listening: false)", () => {
+    resetStore();
+    setListening(false); // Host mic is not listening!
 
+    // Connected phone sends interim turn with stable id
+    addOrUpdateUtterance({
+      id: "phone-alice-171000",
+      text: "Pass the cranberry sauce please",
+      startMs: 1000,
+      endMs: 2000,
+      speakerId: "alice",
+      final: false, // interim!
+    });
 
+    const html = renderToStaticMarkup(createElement(VoxStreamDisplay));
+
+    // Should render the interim speech text
+    expect(html).toContain("Pass the cranberry sauce please");
+    expect(html).toContain("caption-sentence interim");
+    expect(html).toContain("interim-cursor");
+  });
+
+  it("finalizes phone interim turn cleanly when final packet arrives with identical turn id", () => {
+    resetStore();
+    setListening(false);
+
+    // Interim chunk
+    addOrUpdateUtterance({
+      id: "phone-bob-999",
+      text: "How are you",
+      startMs: 100,
+      endMs: 200,
+      speakerId: "bob",
+      final: false,
+    });
+    expect(getState().utterances).toHaveLength(1);
+    expect(getState().utterances[0]?.final).toBe(false);
+
+    // Final chunk with same turn id
+    addOrUpdateUtterance({
+      id: "phone-bob-999",
+      text: "How are you doing today?",
+      startMs: 100,
+      endMs: 350,
+      speakerId: "bob",
+      final: true,
+    });
+
+    // Still only 1 utterance, now finalized
+    expect(getState().utterances).toHaveLength(1);
+    expect(getState().utterances[0]?.text).toBe("How are you doing today?");
+    expect(getState().utterances[0]?.final).toBe(true);
+  });
+});
