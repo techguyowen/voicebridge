@@ -18,6 +18,7 @@ import { createEngine } from "./ui/engineFactory";
 import { MultiDeviceSync } from "./engines/multiDeviceSync";
 import {
   addOrUpdateUtterance,
+  clearInterimUtterances,
   getState,
   relabel,
   setActiveManualSpeaker,
@@ -197,6 +198,11 @@ export default function App(): React.JSX.Element {
   const urlParams = new URLSearchParams(window.location.search);
   const isPhoneTransmitter = urlParams.get("role") === "mic" || urlParams.get("mode") === "mic";
 
+  // Immediately purge any legacy stuck interim utterances on mount
+  useEffect(() => {
+    clearInterimUtterances();
+  }, []);
+
   // URL mode initialization (e.g. ?mode=classroom for direct lecture access)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -285,6 +291,7 @@ export default function App(): React.JSX.Element {
       await engineRef.current?.stop();
     } catch {}
     engineRef.current = null;
+    clearInterimUtterances();
     setListening(false);
     setStatus({ state: "idle" });
     updateAudioLevel({ left: 0, right: 0, activeSpeakerId: null });
@@ -492,7 +499,7 @@ export default function App(): React.JSX.Element {
         )}
         {rogerSilenceWarning && !rogerSilenceDismissed && (
           <div className="roger-silence-banner" role="status">
-            <span>⚠️ <strong>Teacher Mic Silence:</strong> No sound from Roger Loop for 45s. Check if teacher&apos;s microphone is muted or turned off.</span>
+            <span>⚠️ <strong>Microphone Silence:</strong> No sound detected for 45s. Check if your microphone or Roger loop is muted.</span>
             <button type="button" onClick={() => setRogerSilenceDismissed(true)}>Dismiss</button>
           </div>
         )}
@@ -536,9 +543,11 @@ export default function App(): React.JSX.Element {
         </div>
 
         {!settings.showSpeakerLabels || settings.mode === "classroom" || settings.mode === "solo" ? (
-          <div className={"speaker-pill " + (listening ? "is-listening" : "")} role="status" aria-label="Phonak Roger Loop audio">
+          <div className={"speaker-pill " + (listening ? "is-listening" : "")} role="status" aria-label="Microphone audio">
             <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, #ffd400)" }} aria-hidden="true" />
-            <span className="speaker-pill-name">🎙 Roger Loop • {listening ? "Listening" : "Ready"}</span>
+            <span className="speaker-pill-name">
+              🎙 {settings.deviceId && /roger|phonak/i.test(settings.deviceId) ? "Roger Loop" : "Microphone"} • {listening ? "Listening" : "Ready"}
+            </span>
             <span className={"wave " + (soundActive ? "playing" : "")} aria-hidden="true">
               <i /><i /><i /><i />
             </span>
@@ -735,7 +744,7 @@ export default function App(): React.JSX.Element {
 
       {rogerSilenceWarning && !rogerSilenceDismissed && (
         <div className="roger-silence-banner" role="status">
-          <span>⚠️ <strong>Teacher Mic Silence:</strong> No sound from Roger Loop for 45s. Check if teacher&apos;s microphone is muted or turned off.</span>
+          <span>⚠️ <strong>Microphone Silence:</strong> No sound detected for 45s. Check if your microphone or Roger loop is muted.</span>
           <button type="button" onClick={() => setRogerSilenceDismissed(true)}>Dismiss</button>
         </div>
       )}

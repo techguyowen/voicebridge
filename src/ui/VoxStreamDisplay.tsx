@@ -116,7 +116,9 @@ export function VoxStreamDisplay(): React.JSX.Element {
   };
 
   const finalUtterances = utterances.filter((u) => u.final);
-  const interimUtterance = !settings.finalOnlyMode ? utterances.find((u) => !u.final) : undefined;
+  const interimUtterance = (!settings.finalOnlyMode && listening)
+    ? utterances.find((u) => !u.final && u.text.trim().length > 0)
+    : undefined;
   const hasInterim = Boolean(interimUtterance && interimUtterance.text.trim().length > 0);
   const isEmpty = finalUtterances.length === 0 && !hasInterim;
 

@@ -9,11 +9,14 @@ import {
   assignLatestUtteranceSpeaker,
   clampFont,
   clear,
+  clearInterimUtterances,
   dismissAlert,
   editText,
   getState,
   loadSettings,
+  loadTranscript,
   persist,
+  TRANSCRIPT_KEY,
   relabel,
   renameSpeaker,
   resetStore,
@@ -67,6 +70,23 @@ describe("addOrUpdateUtterance", () => {
     addOrUpdateUtterance(utter("u1", "Hi", "sx", true));
     expect(getState().speakers.some((s) => s.id === "sx")).toBe(true);
   });
+
+  it("removes interim utterance when empty or whitespace-only text arrives", () => {
+    addOrUpdateUtterance(utter("u1", "Some speech", "s1", true));
+    addOrUpdateUtterance(utter("interim-1", "listening...", "s1", false));
+    expect(getState().utterances).toHaveLength(2);
+
+    addOrUpdateUtterance(utter("interim-1", "", "s1", false));
+    expect(getState().utterances).toHaveLength(1);
+    expect(getState().utterances[0]?.id).toBe("u1");
+
+    // Also test whitespace-only text
+    addOrUpdateUtterance(utter("interim-2", "hello", "s1", false));
+    expect(getState().utterances).toHaveLength(2);
+    addOrUpdateUtterance(utter("interim-2", "   ", "s1", false));
+    expect(getState().utterances).toHaveLength(1);
+    expect(getState().utterances[0]?.id).toBe("u1");
+  });
 });
 
 describe("relabel", () => {
@@ -109,6 +129,21 @@ describe("clear", () => {
     clear();
     expect(getState().utterances).toHaveLength(0);
     expect(getState().speakers.length).toBeGreaterThan(0);
+  });
+});
+
+describe("clearInterimUtterances", () => {
+  it("removes all non-final utterances while preserving final utterances", () => {
+    addOrUpdateUtterance(utter("u1", "Final 1", "s1", true));
+    addOrUpdateUtterance(utter("u2", "Interim 1", "s1", false));
+    addOrUpdateUtterance(utter("u3", "Final 2", "s2", true));
+    expect(getState().utterances).toHaveLength(3);
+
+    clearInterimUtterances();
+    const remaining = getState().utterances;
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((u) => u.id)).toEqual(["u1", "u3"]);
+    expect(remaining.every((u) => u.final)).toBe(true);
   });
 });
 
@@ -807,6 +842,85 @@ describe("feature toggle settings", () => {
         delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
       }
     }
+  });
+
+  describe("persist and loadTranscript interim filtering", () => {
+    it("persist filters out non-final utterances so they are never written to localStorage", () => {
+      const storage = new Map<string, string>();
+      const mockLocalStorage = {
+        getItem: (k: string) => storage.get(k) ?? null,
+        setItem: (k: string, v: string) => storage.set(k, v),
+        removeItem: (k: string) => storage.delete(k),
+        clear: () => storage.clear(),
+        key: (i: number) => Array.from(storage.keys())[i] ?? null,
+        get length() {
+          return storage.size;
+        },
+      };
+
+      const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+
+      try {
+        addOrUpdateUtterance(utter("u1", "Final one", "s1", true));
+        addOrUpdateUtterance(utter("u2", "Interim text", "s1", false));
+        persist();
+
+        const raw = storage.get(TRANSCRIPT_KEY);
+        expect(raw).toBeDefined();
+        const parsed = JSON.parse(raw!) as { utterances: Utterance[] };
+        expect(parsed.utterances).toHaveLength(1);
+        expect(parsed.utterances[0]?.id).toBe("u1");
+        expect(parsed.utterances[0]?.final).toBe(true);
+      } finally {
+        if (prevStorage !== undefined) {
+          (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+        } else {
+          delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+        }
+      }
+    });
+
+    it("loadTranscript filters out any non-final utterances from raw localStorage", () => {
+      const storage = new Map<string, string>();
+      storage.set(
+        TRANSCRIPT_KEY,
+        JSON.stringify({
+          speakers: [{ id: "s1", name: "Speaker 1", color: "#fff", position: "left" }],
+          utterances: [
+            { id: "u1", text: "Final text", startMs: 0, endMs: 100, speakerId: "s1", final: true },
+            { id: "u2", text: "I'm not", startMs: 100, endMs: 200, speakerId: "s1", final: false },
+          ],
+        })
+      );
+
+      const mockLocalStorage = {
+        getItem: (k: string) => storage.get(k) ?? null,
+        setItem: (k: string, v: string) => storage.set(k, v),
+        removeItem: (k: string) => storage.delete(k),
+        clear: () => storage.clear(),
+        key: (i: number) => Array.from(storage.keys())[i] ?? null,
+        get length() {
+          return storage.size;
+        },
+      };
+
+      const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+
+      try {
+        const result = loadTranscript();
+        expect(result.utterances).toHaveLength(1);
+        expect(result.utterances[0]?.id).toBe("u1");
+        expect(result.utterances[0]?.final).toBe(true);
+      } finally {
+        if (prevStorage !== undefined) {
+          (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+        } else {
+          delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+        }
+      }
+    });
   });
 });
 

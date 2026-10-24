@@ -83,8 +83,8 @@ export const SPEAKER_SILENCE_RESET_MS = 10_000;
 /** Tapping a speaker relabels the latest utterance when it is this recent. */
 export const RECENT_RELABEL_MS = 15_000;
 
-const SETTINGS_KEY = "alt.settings.v3";
-const TRANSCRIPT_KEY = "alt.transcript.v3";
+export const SETTINGS_KEY = "alt.settings.v3";
+export const TRANSCRIPT_KEY = "alt.transcript.v3";
 const PALETTE = ["#ffd400", "#4fc3f7", "#a5d6a7", "#f48fb1", "#ce93d8", "#ffcc80", "#00f0ff", "#ff7043"];
 
 const DEFAULT_SPEAKERS: Speaker[] = [
@@ -241,7 +241,7 @@ const DEMO_CLASS_UTTERANCES: Utterance[] = [
   { id: "demo-5", text: "The primary chemical output produced here is glucose, which plants use for cellular respiration.", startMs: 21500, endMs: 28000, speakerId: null, final: true },
 ];
 
-function loadTranscript(): { speakers: Speaker[]; utterances: Utterance[] } {
+export function loadTranscript(): { speakers: Speaker[]; utterances: Utterance[] } {
   if (typeof window !== "undefined") {
     const params = new URLSearchParams(window.location.search);
     if (params.get("demo") === "1" || params.get("sample") === "1") {
@@ -252,7 +252,7 @@ function loadTranscript(): { speakers: Speaker[]; utterances: Utterance[] } {
   if (!raw || typeof raw !== "object") return { speakers: [...DEFAULT_SPEAKERS], utterances: [] };
   return {
     speakers: Array.isArray(raw.speakers) && raw.speakers.length > 0 ? raw.speakers : [...DEFAULT_SPEAKERS],
-    utterances: Array.isArray(raw.utterances) ? raw.utterances : [],
+    utterances: Array.isArray(raw.utterances) ? raw.utterances.filter((u) => u && u.final) : [],
   };
 }
 
@@ -278,7 +278,7 @@ const listeners = new Set<() => void>();
 
 export function persist(): void {
   writeJSON(SETTINGS_KEY, state.settings);
-  writeJSON(TRANSCRIPT_KEY, { speakers: state.speakers, utterances: state.utterances });
+  writeJSON(TRANSCRIPT_KEY, { speakers: state.speakers, utterances: state.utterances.filter((u) => u.final) });
 }
 
 function update(fn: (s: StoreState) => StoreState): void {
@@ -359,11 +359,13 @@ export function addOrUpdateUtterance(u: Utterance): void {
     const merged: Utterance = existing?.starred !== undefined ? { ...effective, starred: effective.starred ?? existing.starred } : effective;
     // Live interim rows always move to the end so streaming words append to
     // the current speaker turn instead of sitting mid-history.
-    const utterances = found
-      ? merged.final
-        ? s.utterances.map((x) => (x.id === effective.id ? merged : x))
-        : [...s.utterances.filter((x) => x.id !== effective.id), merged]
-      : [...s.utterances, merged];
+    const utterances = !effective.final && effective.text.trim().length === 0
+      ? s.utterances.filter((x) => x.id !== effective.id)
+      : found
+        ? merged.final
+          ? s.utterances.map((x) => (x.id === effective.id ? merged : x))
+          : [...s.utterances.filter((x) => x.id !== effective.id), merged]
+        : [...s.utterances, merged];
 
     let flashActive = s.flashActive;
     let latestSpeakerId = s.latestSpeakerId;
@@ -732,6 +734,13 @@ export function setListening(listening: boolean): void {
 
 export function clear(): void {
   update((s) => ({ ...s, utterances: [] }));
+}
+
+export function clearInterimUtterances(): void {
+  update((s) => ({
+    ...s,
+    utterances: s.utterances.filter((u) => u.final),
+  }));
 }
 
 export function setFinalOnlyMode(finalOnlyMode: boolean): void {

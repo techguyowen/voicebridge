@@ -79,6 +79,22 @@ export class WebSpeechEngine implements TranscriptionEngine {
   private static readonly MIN_TURN_MS = 2000;
   private lastEmittedSpeaker: SpeakerId | null = null;
   private lastSpeakerSwitchAt = 0;
+  private interimTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private clearInterim(): void {
+    if (this.interimTimer) {
+      clearTimeout(this.interimTimer);
+      this.interimTimer = null;
+    }
+    this.events?.onUtterance({
+      id: WebSpeechEngine.INTERIM_ID,
+      text: "",
+      startMs: Date.now(),
+      endMs: Date.now(),
+      speakerId: null,
+      final: false,
+    });
+  }
 
   constructor(options: WebSpeechEngineOptions = {}) {
     this.lang = options.lang ?? "en-US";
@@ -158,6 +174,11 @@ export class WebSpeechEngine implements TranscriptionEngine {
       // stable id keeps live words appended to the current speaker turn
       // instead of spawning a new row on every recognition chunk.
       if (interim.trim().length > 0) {
+        if (this.interimTimer) {
+          clearTimeout(this.interimTimer);
+        }
+        this.interimTimer = setTimeout(() => this.clearInterim(), 3000);
+
         const interimUtterance: Utterance = {
           id: WebSpeechEngine.INTERIM_ID,
           text: interim.trim(),
@@ -181,15 +202,7 @@ export class WebSpeechEngine implements TranscriptionEngine {
         };
         this.events.onUtterance(finalUtterance);
 
-        // Clear the live interim row so finalized words are not duplicated.
-        this.events.onUtterance({
-          id: WebSpeechEngine.INTERIM_ID,
-          text: "",
-          startMs: now,
-          endMs: now,
-          speakerId,
-          final: false,
-        });
+        this.clearInterim();
 
         // Advance to next turn
         this.turnStartTime = now;
@@ -198,6 +211,7 @@ export class WebSpeechEngine implements TranscriptionEngine {
     };
 
     rec.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      this.clearInterim();
       if (!this.isRunning) return;
       // 'no-speech' is routine silence; ignore and allow continuous listening
       if (event.error === "no-speech") return;
@@ -217,6 +231,7 @@ export class WebSpeechEngine implements TranscriptionEngine {
     };
 
     rec.onend = () => {
+      this.clearInterim();
       // Browsers stop recognition after silence pauses. Auto-restart if we are still active!
       if (this.isRunning) {
         try {
@@ -403,6 +418,7 @@ export class WebSpeechEngine implements TranscriptionEngine {
   }
 
   async stop(): Promise<void> {
+    this.clearInterim();
     this.isRunning = false;
 
     if (this.meterInterval) {
