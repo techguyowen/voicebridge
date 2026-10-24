@@ -5,6 +5,7 @@ import { toHtml, toMarkdown } from "./ExportButtons";
 import { groupUtterancesByTurn, highlightAlertWords } from "./TranscriptList";
 import {
   addOrUpdateUtterance,
+  addSpeaker,
   applyProfile,
   assignLatestUtteranceSpeaker,
   clampFont,
@@ -12,17 +13,23 @@ import {
   clearInterimUtterances,
   dismissAlert,
   editText,
+  generateRoomCode,
+  generateRoomPin,
   getState,
   loadSettings,
   loadTranscript,
   persist,
   TRANSCRIPT_KEY,
+  regenerateRoomSecurity,
   relabel,
+  removeSpeaker,
   renameSpeaker,
   resetStore,
   resetToAutoSpeaker,
   setActiveManualSpeaker,
   setActiveSpeaker,
+  setRoomPin,
+  upsertSpeaker,
   setAlertChime,
   setAlertWords,
   setCustomColors,
@@ -118,6 +125,7 @@ describe("editText", () => {
 
 describe("renameSpeaker", () => {
   it("renames the speaker", () => {
+    upsertSpeaker({ id: "s1", name: "Mom" });
     renameSpeaker("s1", "Grandma");
     expect(getState().speakers.find((s) => s.id === "s1")?.name).toBe("Grandma");
   });
@@ -177,6 +185,7 @@ describe("activeManualSpeaker", () => {
   });
 
   it("clearing manual lock falls back to the held conversational turn", () => {
+    upsertSpeaker({ id: "s1", name: "Speaker 1" });
     setActiveManualSpeaker("s2");
     setActiveManualSpeaker(null);
     addOrUpdateUtterance(utter("u1", "Hello", null, true));
@@ -204,6 +213,7 @@ describe("activeManualSpeaker", () => {
 
 describe("speaker turn hold", () => {
   it("assigns null-speaker utterances to the default first speaker", () => {
+    upsertSpeaker({ id: "s1", name: "Speaker 1" });
     addOrUpdateUtterance(utter("u1", "Hello", null, true));
     expect(getState().utterances[0]?.speakerId).toBe("s1");
     expect(getState().currentSpeakerId).toBe("s1");
@@ -211,6 +221,7 @@ describe("speaker turn hold", () => {
   });
 
   it("keeps one person talking across many sentences on the same speaker", () => {
+    upsertSpeaker({ id: "s1", name: "Speaker 1" });
     addOrUpdateUtterance(utter("u1", "hi", null, true));
     addOrUpdateUtterance(utter("u2", "how was your day", null, true));
     addOrUpdateUtterance(utter("u3", "pass the salt", null, true));
@@ -460,6 +471,7 @@ describe("highlightAlertWords", () => {
 
 describe("resetToAutoSpeaker and Auto speaker tracking", () => {
   it("resetToAutoSpeaker clears activeManualSpeakerId and resets to fallback speaker", () => {
+    upsertSpeaker({ id: "s1", name: "Speaker 1" });
     setActiveSpeaker("s3");
     expect(getState().activeManualSpeakerId).toBe("s3");
     expect(getState().currentSpeakerId).toBe("s3");
@@ -921,6 +933,171 @@ describe("feature toggle settings", () => {
         }
       }
     });
+  });
+});
+
+describe("Room Security & PIN Generation", () => {
+  it("generateRoomCode creates TABLE- prefix with 6 uppercase alphanumeric chars", () => {
+    const code = generateRoomCode();
+    expect(code).toMatch(/^TABLE-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
+  });
+
+  it("generateRoomPin creates 4-digit numeric string", () => {
+    const pin = generateRoomPin();
+    expect(pin).toMatch(/^\d{4}$/);
+    const num = Number.parseInt(pin, 10);
+    expect(num).toBeGreaterThanOrEqual(1000);
+    expect(num).toBeLessThanOrEqual(9999);
+  });
+
+  it("regenerateRoomSecurity generates fresh roomCode and roomPin", () => {
+    const { roomCode, roomPin } = regenerateRoomSecurity();
+    const newSettings = getState().settings;
+
+    expect(newSettings.roomCode).toBe(roomCode);
+    expect(newSettings.roomPin).toBe(roomPin);
+    expect(roomCode).toMatch(/^TABLE-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
+    expect(roomPin).toMatch(/^\d{4}$/);
+  });
+
+  it("setRoomPin updates roomPin in settings", () => {
+    setRoomPin("5432");
+    expect(getState().settings.roomPin).toBe("5432");
+  });
+
+  it("loadSettings safely parses valid roomCode and roomPin or falls back to fresh generation", () => {
+    const storage = new Map<string, string>();
+    storage.set(
+      "alt.settings.v3",
+      JSON.stringify({
+        roomCode: "TABLE-H7K2M9",
+        roomPin: "4821",
+      })
+    );
+
+    const mockLocalStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, v),
+      removeItem: (k: string) => storage.delete(k),
+      clear: () => storage.clear(),
+      key: (i: number) => Array.from(storage.keys())[i] ?? null,
+      get length() {
+        return storage.size;
+      },
+    };
+
+    const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+
+    try {
+      const s = loadSettings();
+      expect(s.roomCode).toBe("TABLE-H7K2M9");
+      expect(s.roomPin).toBe("4821");
+
+      // Test with legacy/malformed roomCode (TABLE-101) and invalid PIN (abc)
+      storage.set(
+        "alt.settings.v3",
+        JSON.stringify({
+          roomCode: "TABLE-101",
+          roomPin: "abc",
+        })
+      );
+      const s2 = loadSettings();
+      expect(s2.roomCode).toMatch(/^TABLE-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
+      expect(s2.roomPin).toMatch(/^\d{4}$/);
+    } finally {
+      if (prevStorage !== undefined) {
+        (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+      } else {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      }
+    }
+  });
+});
+
+describe("Dynamic Speaker Management", () => {
+  it("addSpeaker creates new speaker and assigns unique id", () => {
+    const id1 = addSpeaker("Alice", "#ffd400", "left");
+    expect(id1).toBeTruthy();
+    const sp1 = getState().speakers.find((s) => s.id === id1);
+    expect(sp1).toBeDefined();
+    expect(sp1?.name).toBe("Alice");
+    expect(sp1?.color).toBe("#ffd400");
+    expect(sp1?.position).toBe("left");
+
+    // Adding same name should yield unique disambiguated id
+    const id2 = addSpeaker("Alice");
+    expect(id2).not.toBe(id1);
+    expect(getState().speakers).toHaveLength(2);
+  });
+
+  it("removeSpeaker removes speaker from store", () => {
+    const id = addSpeaker("Bob", "#4fc3f7", "right");
+    expect(getState().speakers.some((s) => s.id === id)).toBe(true);
+
+    removeSpeaker(id);
+    expect(getState().speakers.some((s) => s.id === id)).toBe(false);
+  });
+
+  it("upsertSpeaker adds new speaker or updates existing", () => {
+    upsertSpeaker({ id: "phone_sarah", name: "Sarah", color: "#ce93d8", position: "across" });
+    const sp = getState().speakers.find((s) => s.id === "phone_sarah");
+    expect(sp).toBeDefined();
+    expect(sp?.name).toBe("Sarah");
+    expect(sp?.position).toBe("across");
+
+    // Re-upserting with position 'none' preserves existing position
+    upsertSpeaker({ id: "phone_sarah", name: "Sarah Phone", color: "#ce93d8", position: "none" });
+    const updated = getState().speakers.find((s) => s.id === "phone_sarah");
+    expect(updated?.name).toBe("Sarah Phone");
+    expect(updated?.position).toBe("across");
+  });
+
+  it("loadTranscript cleans up legacy hardcoded speakers", () => {
+    const storage = new Map<string, string>();
+    storage.set(
+      TRANSCRIPT_KEY,
+      JSON.stringify({
+        speakers: [
+          { id: "s1", name: "Mom (Left)", color: "#ffd400", position: "left" },
+          { id: "s2", name: "Dad (Right)", color: "#4fc3f7", position: "right" },
+          { id: "s3", name: "Across Table", color: "#a5d6a7", position: "across" },
+          { id: "s4", name: "Grandma", color: "#f48fb1", position: "none" },
+        ],
+        utterances: [
+          { id: "u1", text: "Hello", startMs: 0, endMs: 100, speakerId: "s4", final: true },
+        ],
+      })
+    );
+
+    const mockLocalStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, v),
+      removeItem: (k: string) => storage.delete(k),
+      clear: () => storage.clear(),
+      key: (i: number) => Array.from(storage.keys())[i] ?? null,
+      get length() {
+        return storage.size;
+      },
+    };
+
+    const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+
+    try {
+      const result = loadTranscript();
+      expect(result.speakers).toHaveLength(1);
+      expect(result.speakers[0]?.name).toBe("Grandma");
+      expect(result.speakers.some((s) => s.name === "Mom (Left)")).toBe(false);
+      expect(result.speakers.some((s) => s.name === "Dad (Right)")).toBe(false);
+      expect(result.speakers.some((s) => s.name === "Across Table")).toBe(false);
+    } finally {
+      if (prevStorage !== undefined) {
+        (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+      } else {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      }
+    }
   });
 });
 

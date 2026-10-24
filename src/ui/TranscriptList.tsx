@@ -96,8 +96,8 @@ const TURN_ARROWS: Record<string, { arrow: string; label: string }> = {
 };
 
 export function directionForSpeaker(speaker: Speaker | undefined): { arrow: string; label: string } {
-  if (!speaker) return { arrow: "", label: "" };
-  return TURN_ARROWS[speaker.position ?? "none"] ?? { arrow: "", label: "" };
+  if (!speaker || !speaker.position || speaker.position === "none") return { arrow: "", label: "" };
+  return TURN_ARROWS[speaker.position] ?? { arrow: "", label: "" };
 }
 
 /** Format an engine epoch timestamp as a short clock time; "" for relative/test stamps. */

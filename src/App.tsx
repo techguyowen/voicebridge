@@ -32,6 +32,7 @@ import {
   setTheme,
   setZenMode,
   updateAudioLevel,
+  upsertSpeaker,
   useStore,
   type Theme,
 } from "./ui/store";
@@ -218,8 +219,20 @@ export default function App(): React.JSX.Element {
   // Multi-device sync: receive speech from family phones joined at table
   useEffect(() => {
     if (isPhoneTransmitter) return;
-    const sync = new MultiDeviceSync(settings.roomCode);
+    const sync = new MultiDeviceSync(settings.roomCode, { isHost: true, pin: settings.roomPin });
     const unbind = sync.onMessage((msg) => {
+      // Check: If msg.pin !== settings.roomPin, ignore/drop the packet.
+      if (msg.pin !== settings.roomPin) return;
+
+      if ((msg.type === "join" || msg.type === "utterance") && msg.senderName) {
+        upsertSpeaker({
+          id: msg.utterance?.speakerId || msg.senderName.toLowerCase().replace(/\s+/g, "_"),
+          name: msg.senderName,
+          color: msg.senderColor || "#4fc3f7",
+          position: "none",
+        });
+      }
+
       if (msg.type === "utterance" && msg.utterance) {
         addOrUpdateUtterance(msg.utterance);
       }
@@ -228,7 +241,7 @@ export default function App(): React.JSX.Element {
       unbind();
       sync.destroy();
     };
-  }, [settings.roomCode, isPhoneTransmitter]);
+  }, [settings.roomCode, settings.roomPin, isPhoneTransmitter]);
 
   // Apply theme, font, weight, spacing, and custom colors to root document
   useEffect(() => {
@@ -761,7 +774,7 @@ export default function App(): React.JSX.Element {
         <div className="dock-divider" aria-hidden="true" />
         <div className="dock-speakers">
           {settings.showSpeakerLabels && settings.mode !== "classroom" && settings.mode !== "solo" && (
-            <TableRadar />
+            <TableRadar onOpenQr={() => setQrOpen(true)} />
           )}
         </div>
         {settings.showQuickReply !== false && settings.mode !== "diagnostics" && (

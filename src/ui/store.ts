@@ -42,6 +42,7 @@ export interface Settings {
   customVocabulary: string; // comma-separated terms
   zenMode: boolean; // Fullscreen distraction-free dining mode
   roomCode: string;
+  roomPin: string;
   customColors?: CustomColors;
   alertWords: string; // comma-separated words/names to watch for
   showTableRadar: boolean;
@@ -87,14 +88,20 @@ export const SETTINGS_KEY = "alt.settings.v3";
 export const TRANSCRIPT_KEY = "alt.transcript.v3";
 const PALETTE = ["#ffd400", "#4fc3f7", "#a5d6a7", "#f48fb1", "#ce93d8", "#ffcc80", "#00f0ff", "#ff7043"];
 
-const DEFAULT_SPEAKERS: Speaker[] = [
-  { id: "s1", name: "Mom (Left)", color: "#ffd400", position: "left" },
-  { id: "s2", name: "Dad (Right)", color: "#4fc3f7", position: "right" },
-  { id: "s3", name: "Across Table", color: "#a5d6a7", position: "across" },
-];
+export const DEFAULT_SPEAKERS: Speaker[] = [];
 
-function generateRoomCode(): string {
-  return "TABLE-" + Math.floor(100 + Math.random() * 900);
+const ROOM_CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+export function generateRoomCode(): string {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += ROOM_CODE_CHARS.charAt(Math.floor(Math.random() * ROOM_CODE_CHARS.length));
+  }
+  return `TABLE-${code}`;
+}
+
+export function generateRoomPin(): string {
+  return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -120,6 +127,7 @@ const DEFAULT_SETTINGS: Settings = {
   customVocabulary: "",
   zenMode: false,
   roomCode: generateRoomCode(),
+  roomPin: generateRoomPin(),
   alertWords: "",
   showTableRadar: true,
   showSpeakerLabels: true,
@@ -197,7 +205,14 @@ export function loadSettings(): Settings {
     speechLanguage: typeof raw.speechLanguage === "string" && raw.speechLanguage ? raw.speechLanguage : "en-US",
     customVocabulary: typeof raw.customVocabulary === "string" ? raw.customVocabulary : "",
     zenMode: Boolean(raw.zenMode),
-    roomCode: typeof raw.roomCode === "string" && raw.roomCode ? raw.roomCode : generateRoomCode(),
+    roomCode:
+      typeof raw.roomCode === "string" && /^TABLE-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/i.test(raw.roomCode)
+        ? raw.roomCode.toUpperCase()
+        : generateRoomCode(),
+    roomPin:
+      typeof raw.roomPin === "string" && /^\d{4}$/.test(raw.roomPin)
+        ? raw.roomPin
+        : generateRoomPin(),
     customColors: raw.customColors,
     alertWords: typeof raw.alertWords === "string" ? raw.alertWords : "",
     showTableRadar: raw.showTableRadar !== undefined ? Boolean(raw.showTableRadar) : true,
@@ -250,8 +265,11 @@ export function loadTranscript(): { speakers: Speaker[]; utterances: Utterance[]
   }
   const raw = readJSON(TRANSCRIPT_KEY) as { speakers?: Speaker[]; utterances?: Utterance[] } | undefined;
   if (!raw || typeof raw !== "object") return { speakers: [...DEFAULT_SPEAKERS], utterances: [] };
+  const rawSpeakers = Array.isArray(raw.speakers) ? raw.speakers : [];
+  const legacyRegex = /^(Mom \(Left\)|Dad \(Right\)|Across Table)$/i;
+  const filteredSpeakers = rawSpeakers.filter((s) => s && typeof s.name === "string" && !legacyRegex.test(s.name.trim()));
   return {
-    speakers: Array.isArray(raw.speakers) && raw.speakers.length > 0 ? raw.speakers : [...DEFAULT_SPEAKERS],
+    speakers: filteredSpeakers,
     utterances: Array.isArray(raw.utterances) ? raw.utterances.filter((u) => u && u.final) : [],
   };
 }
@@ -541,6 +559,119 @@ export function editText(id: string, text: string): void {
   }));
 }
 
+export function addSpeaker(name: string, color?: string, position?: SeatingPosition): SpeakerId {
+  let newId: SpeakerId = "";
+  update((s) => {
+    const baseId = name.toLowerCase().replace(/[^a-z0-9_-]/g, "_").replace(/^_+|_+$/g, "") || `s${s.speakers.length + 1}`;
+    let candidateId = baseId;
+    let counter = 1;
+    while (s.speakers.some((sp) => sp.id === candidateId)) {
+      candidateId = `${baseId}_${counter++}`;
+    }
+    newId = candidateId;
+    const chosenColor = color || PALETTE[s.speakers.length % PALETTE.length] || "#ffd400";
+    const newSpeaker: Speaker = {
+      id: newId,
+      name,
+      color: chosenColor,
+      position: position ?? "none",
+    };
+    const speakers = [...s.speakers, newSpeaker];
+    const currentSpeakerId = s.speakers.some((sp) => sp.id === s.currentSpeakerId) ? s.currentSpeakerId : newId;
+    return {
+      ...s,
+      speakers,
+      currentSpeakerId,
+    };
+  });
+  return newId;
+}
+
+export function removeSpeaker(id: SpeakerId): void {
+  update((s) => {
+    const speakers = s.speakers.filter((sp) => sp.id !== id);
+    const activeManualSpeakerId = s.activeManualSpeakerId === id ? null : s.activeManualSpeakerId;
+    const currentSpeakerId = s.currentSpeakerId === id ? (speakers[0]?.id ?? "s1") : s.currentSpeakerId;
+    const latestSpeakerId = s.latestSpeakerId === id ? null : s.latestSpeakerId;
+    return {
+      ...s,
+      speakers,
+      activeManualSpeakerId,
+      currentSpeakerId,
+      latestSpeakerId,
+    };
+  });
+}
+
+export function upsertSpeaker(sp: { id: SpeakerId; name: string; color?: string; position?: SeatingPosition }): void {
+  update((s) => {
+    const exists = s.speakers.some((item) => item.id === sp.id);
+    let speakers: Speaker[];
+    if (exists) {
+      speakers = s.speakers.map((item) => {
+        if (item.id !== sp.id) return item;
+        return {
+          ...item,
+          name: sp.name || item.name,
+          color: sp.color !== undefined ? sp.color : item.color,
+          position: sp.position !== undefined && sp.position !== "none" ? sp.position : (item.position ?? "none"),
+        };
+      });
+    } else {
+      const color = sp.color || PALETTE[s.speakers.length % PALETTE.length] || "#4fc3f7";
+      const newSpeaker: Speaker = {
+        id: sp.id,
+        name: sp.name,
+        color,
+        position: sp.position ?? "none",
+      };
+      speakers = [...s.speakers, newSpeaker];
+    }
+    const currentSpeakerId = s.speakers.some((item) => item.id === s.currentSpeakerId)
+      ? s.currentSpeakerId
+      : (speakers[0]?.id ?? "s1");
+    return {
+      ...s,
+      speakers,
+      currentSpeakerId,
+    };
+  });
+}
+
+export function regenerateRoomSecurity(): { roomCode: string; roomPin: string } {
+  const roomCode = generateRoomCode();
+  const roomPin = generateRoomPin();
+  update((s) => ({
+    ...s,
+    settings: {
+      ...s.settings,
+      roomCode,
+      roomPin,
+    },
+  }));
+  return { roomCode, roomPin };
+}
+
+export function setRoomPin(pin: string): void {
+  update((s) => ({
+    ...s,
+    settings: {
+      ...s.settings,
+      roomPin: pin,
+    },
+  }));
+}
+
+export function setRoomCode(roomCode: string): void {
+  update((s) => ({
+    ...s,
+    settings: {
+      ...s.settings,
+      roomCode,
+    },
+  }));
+}
+
 export function renameSpeaker(id: SpeakerId, name: string): void {
   update((s) => ({
     ...s,
@@ -759,7 +890,11 @@ export function resetStore(): void {
   state = {
     speakers: [...DEFAULT_SPEAKERS],
     utterances: [],
-    settings: { ...DEFAULT_SETTINGS },
+    settings: {
+      ...DEFAULT_SETTINGS,
+      roomCode: generateRoomCode(),
+      roomPin: generateRoomPin(),
+    },
     status: { state: "idle" },
     listening: false,
     audioLevel: { left: 0, right: 0, activeSpeakerId: null },

@@ -17,6 +17,15 @@ export interface Utterance {
   starred?: boolean;
 }
 
+export interface SyncMessage {
+  type: "utterance" | "join" | "leave" | "status";
+  room: string;
+  senderName: string;
+  senderColor?: string;
+  pin?: string;
+  utterance?: Utterance;
+}
+
 export type AudioSource =
   | { kind: "mix"; deviceId?: string }
   | { kind: "channel"; deviceId?: string; channel: 0 | 1; speakerId: SpeakerId };

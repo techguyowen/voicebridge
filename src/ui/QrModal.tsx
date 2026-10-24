@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { useStore } from "./store";
+import { regenerateRoomSecurity, useStore } from "./store";
 
 export function QrModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { settings } = useStore();
   const [qrUrl, setQrUrl] = useState<string>("");
 
-  const joinUrl = `${window.location.origin}${window.location.pathname}?role=mic&room=${settings.roomCode}`;
+  const joinUrl = `${window.location.origin}${window.location.pathname}?role=mic&room=${settings.roomCode}&pin=${settings.roomPin}`;
 
   useEffect(() => {
     async function makeQr() {
@@ -53,8 +53,24 @@ export function QrModal({ onClose }: { onClose: () => void }): React.JSX.Element
           )}
         </div>
 
-        <div style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center" }}>
-          Room Code: <span style={{ color: "var(--fg)", textDecoration: "underline" }}>{settings.roomCode}</span>
+        <div style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", display: "flex", justifyContent: "center", gap: "20px", flexWrap: "wrap" }}>
+          <div>
+            Room Code: <span style={{ color: "var(--fg)", textDecoration: "underline" }}>{settings.roomCode}</span>
+          </div>
+          <div>
+            PIN: <span style={{ color: "var(--fg)", fontFamily: "monospace", letterSpacing: "2px" }}>{settings.roomPin}</span>
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", margin: "14px 0" }}>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => regenerateRoomSecurity()}
+            style={{ fontSize: "16px", padding: "8px 16px" }}
+          >
+            🔄 Regenerate Room &amp; PIN
+          </button>
         </div>
 
         <div style={{ wordBreak: "break-all", fontSize: "16px", color: "var(--muted)", margin: "12px 0" }}>

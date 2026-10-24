@@ -14,14 +14,19 @@ const POSITION_ARROWS: Record<string, string> = {
   across: "↑",
   right: "→",
   near: "↓",
-  none: "•",
+  none: "",
 };
 
 export function arrowForSpeaker(speaker: Speaker): string {
-  return POSITION_ARROWS[speaker.position ?? "none"] ?? "•";
+  if (!speaker.position || speaker.position === "none") return "";
+  return POSITION_ARROWS[speaker.position] ?? "";
 }
 
-export function TableRadar(): React.JSX.Element | null {
+export interface TableRadarProps {
+  onOpenQr?: () => void;
+}
+
+export function TableRadar({ onOpenQr }: TableRadarProps = {}): React.JSX.Element | null {
   const {
     speakers,
     settings,
@@ -74,6 +79,24 @@ export function TableRadar(): React.JSX.Element | null {
 
   if (settings.mode !== "table" || !settings.showTableRadar) return null;
 
+  if (speakers.length === 0) {
+    return (
+      <div className="table-radar" role="group" aria-label="Who is speaking">
+        <div className="table-radar-row">
+          <button
+            type="button"
+            className="radar-pill radar-auto"
+            onClick={onOpenQr}
+            aria-label="No speakers connected. Tap to connect family phone mics via QR code"
+            title="Scan QR code to connect family phones as table microphones"
+          >
+            📱 Connect phone mics / + Add speaker
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const latest = utterances[utterances.length - 1];
 
   const handleAutoClick = (): void => {
@@ -95,8 +118,6 @@ export function TableRadar(): React.JSX.Element | null {
       resetToAutoSpeaker();
       return;
     }
-    // Switching also relabels the latest utterance when it is recent /
-    // streaming (setActiveSpeaker enforces the 15-second window).
     if (latest) {
       setActiveSpeaker(speaker.id);
     } else {
@@ -148,7 +169,8 @@ export function TableRadar(): React.JSX.Element | null {
               }
             >
               <span className="radar-dot" style={{ backgroundColor: speaker.color }} aria-hidden="true" />
-              <span aria-hidden="true">{arrow}</span> {isLocked ? "🔒 " : ""}{speaker.name}
+              {arrow ? <span aria-hidden="true">{arrow} </span> : null}
+              {isLocked ? "🔒 " : ""}{speaker.name}
             </button>
           );
         })}

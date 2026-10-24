@@ -1,49 +1,112 @@
 import { useEffect, useRef, useState } from "react";
 import { MultiDeviceSync } from "../engines/multiDeviceSync";
 
+export type MicMode = "latch" | "ptt" | "temp-mute";
+
 export function PhoneTransmitter(): React.JSX.Element {
   const urlParams = new URLSearchParams(window.location.search);
-  const room = urlParams.get("room") || "TABLE-101";
+  const room = urlParams.get("room") || localStorage.getItem("alt.phone.room") || "TABLE-101";
+  const [pin, setPin] = useState(() => urlParams.get("pin") || localStorage.getItem("alt.phone.pin") || "");
+  const [name, setName] = useState(() => localStorage.getItem("alt.phone.name") || "Family Member");
+  const [color, setColor] = useState(() => localStorage.getItem("alt.phone.color") || "#4fc3f7");
+  const [micMode, setMicMode] = useState<MicMode>(() => {
+    const saved = localStorage.getItem("alt.phone.micMode");
+    return saved === "ptt" || saved === "temp-mute" || saved === "latch" ? saved : "latch";
+  });
 
-  const [name, setName] = useState(localStorage.getItem("alt.phone.name") || "Family Member");
-  const [color, setColor] = useState(localStorage.getItem("alt.phone.color") || "#4fc3f7");
-  const [isTalking, setIsTalking] = useState(false);
+  const [micActive, setMicActive] = useState(false);
+  const [isTransmitting, setIsTransmitting] = useState(false);
   const [lastSpoken, setLastSpoken] = useState("");
-  const [statusMessage, setStatusMessage] = useState("Connected to Room " + room);
+  const [connectionStatus, setConnectionStatus] = useState("Connecting to tablet...");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const syncRef = useRef<MultiDeviceSync | null>(null);
   const recRef = useRef<any>(null);
+  const isTransmittingRef = useRef(isTransmitting);
+  const pinRef = useRef(pin);
+  const micModeRef = useRef(micMode);
 
   useEffect(() => {
-    const sync = new MultiDeviceSync(room);
+    isTransmittingRef.current = isTransmitting;
+  }, [isTransmitting]);
+
+  useEffect(() => {
+    pinRef.current = pin;
+    if (pin) localStorage.setItem("alt.phone.pin", pin);
+  }, [pin]);
+
+  useEffect(() => {
+    micModeRef.current = micMode;
+    localStorage.setItem("alt.phone.micMode", micMode);
+    // Adjust transmission default when mode changes
+    if (micActive) {
+      if (micMode === "temp-mute") {
+        setIsTransmitting(true);
+      } else {
+        setIsTransmitting(false);
+      }
+    }
+  }, [micMode, micActive]);
+
+  // Multi-device sync over WebRTC DataConnection (and BroadcastChannel)
+  useEffect(() => {
+    const activePin = pinRef.current.trim();
+    const sync = new MultiDeviceSync(room, { isHost: false, pin: activePin });
     syncRef.current = sync;
+
+    sync.onStatus((status) => {
+      setConnectionStatus(status);
+    });
+
     sync.send({
       type: "join",
       senderName: name,
       senderColor: color,
+      pin: activePin,
     });
 
     return () => {
       sync.send({
         type: "leave",
         senderName: name,
+        pin: activePin,
       });
       sync.destroy();
     };
-  }, [room, name, color]);
+  }, [room, name, color, pin]);
 
-  const toggleMic = () => {
-    if (isTalking) {
-      stopMic();
-    } else {
-      startMic();
+  const vibrate = (pattern: number | number[]) => {
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate(pattern);
+      } catch {}
     }
   };
 
+  const ensurePin = (): string | null => {
+    let currentPin = pin.trim();
+    if (!currentPin) {
+      const entered = window.prompt("Enter the 4-digit Room PIN shown on the main display:");
+      if (!entered || !entered.trim()) {
+        setErrorMessage("Room PIN is required to connect to the table display.");
+        return null;
+      }
+      currentPin = entered.trim();
+      setPin(currentPin);
+      pinRef.current = currentPin;
+      localStorage.setItem("alt.phone.pin", currentPin);
+    }
+    setErrorMessage("");
+    return currentPin;
+  };
+
   const startMic = () => {
+    const activePin = ensurePin();
+    if (!activePin) return;
+
     const SpeechRecClass = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecClass) {
-      alert("Speech recognition is not supported in this mobile browser. Try Chrome or Safari.");
+      alert("Speech recognition is not supported in this mobile browser. Please use Chrome or Safari.");
       return;
     }
 
@@ -54,8 +117,15 @@ export function PhoneTransmitter(): React.JSX.Element {
       rec.lang = "en-US";
 
       rec.onstart = () => {
-        setIsTalking(true);
-        setStatusMessage("Listening... Speak clearly into your phone");
+        setMicActive(true);
+        if (micModeRef.current === "temp-mute") {
+          setIsTransmitting(true);
+        } else if (micModeRef.current === "latch") {
+          setIsTransmitting(true);
+        } else {
+          setIsTransmitting(false);
+        }
+        vibrate(60);
       };
 
       rec.onresult = (e: any) => {
@@ -70,58 +140,98 @@ export function PhoneTransmitter(): React.JSX.Element {
           }
         }
 
-        const now = Date.now();
         const text = (finalSegment || interim).trim();
         if (text) {
           setLastSpoken(text);
-          syncRef.current?.send({
-            type: "utterance",
-            senderName: name,
-            senderColor: color,
-            utterance: {
-              id: `phone-${Date.now()}`,
-              text,
-              startMs: now - 1000,
-              endMs: now,
-              speakerId: name.toLowerCase().replace(/\s+/g, "_"),
-              final: Boolean(finalSegment),
-            },
-          });
+          // Only transmit to host if mic is unmuted!
+          if (isTransmittingRef.current) {
+            const now = Date.now();
+            syncRef.current?.send({
+              type: "utterance",
+              senderName: name,
+              senderColor: color,
+              pin: pinRef.current,
+              utterance: {
+                id: `phone-${Date.now()}`,
+                text,
+                startMs: now - 1000,
+                endMs: now,
+                speakerId: name.toLowerCase().replace(/\s+/g, "_"),
+                final: Boolean(finalSegment),
+              },
+            });
+          }
         }
       };
 
       rec.onerror = (e: any) => {
         if (e.error !== "no-speech") {
-          setStatusMessage("Notice: " + e.error);
+          setErrorMessage("Mic status: " + e.error);
         }
       };
 
       rec.onend = () => {
-        if (isTalking) {
+        if (recRef.current) {
           try {
             rec.start();
           } catch {}
         } else {
-          setIsTalking(false);
-          setStatusMessage("Microphone stopped");
+          setMicActive(false);
+          setIsTransmitting(false);
         }
       };
 
       rec.start();
       recRef.current = rec;
-      setIsTalking(true);
+      setMicActive(true);
     } catch (err) {
       alert("Microphone error: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
   const stopMic = () => {
-    setIsTalking(false);
+    setMicActive(false);
+    setIsTransmitting(false);
     if (recRef.current) {
       try {
         recRef.current.stop();
       } catch {}
       recRef.current = null;
+    }
+    vibrate(40);
+  };
+
+  // Button interaction handlers depending on MicMode
+  const handlePointerDown = () => {
+    if (!micActive) {
+      startMic();
+      return;
+    }
+
+    if (micMode === "ptt") {
+      setIsTransmitting(true);
+      vibrate(40);
+    } else if (micMode === "temp-mute") {
+      // Cough button: hold to temporarily mute
+      setIsTransmitting(false);
+      vibrate(40);
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (!micActive) return;
+
+    if (micMode === "ptt") {
+      setIsTransmitting(false);
+      vibrate(20);
+    } else if (micMode === "temp-mute") {
+      // Releasing cough button resumes transmission
+      setIsTransmitting(true);
+      vibrate(20);
+    } else if (micMode === "latch") {
+      // Toggle
+      setIsTransmitting((prev) => !prev);
+      vibrate(40);
     }
   };
 
@@ -135,77 +245,227 @@ export function PhoneTransmitter(): React.JSX.Element {
     localStorage.setItem("alt.phone.color", newColor);
   };
 
+  const handlePinChange = (newPin: string) => {
+    setPin(newPin);
+    pinRef.current = newPin;
+    localStorage.setItem("alt.phone.pin", newPin);
+  };
+
   return (
-    <div className="phone-transmitter" style={{ padding: "24px", maxWidth: "600px", margin: "0 auto" }}>
-      <header className="phone-head">
-        <h1 style={{ fontSize: "28px", margin: "0 0 8px 0" }}>Table Microphone</h1>
-        <div className="phone-room-badge" style={{ fontSize: "18px", color: "var(--muted)" }}>
-          Room: <strong>{room}</strong>
+    <div className="phone-transmitter" style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", color: "var(--fg, #ffffff)" }}>
+      <header className="phone-head" style={{ borderBottom: "1px solid var(--border, #333)", paddingBottom: "12px", marginBottom: "16px" }}>
+        <h1 style={{ fontSize: "26px", margin: "0 0 6px 0" }}>Table Microphone</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", fontSize: "16px", color: "var(--muted, #aaa)" }}>
+          <div>Room: <strong style={{ color: "var(--fg, #fff)" }}>{room}</strong></div>
+          <div>PIN: <strong style={{ color: "var(--fg, #fff)", fontFamily: "monospace" }}>{pin || "(none)"}</strong></div>
+        </div>
+        <div style={{ marginTop: "6px", fontSize: "14px", color: connectionStatus.includes("Connected") ? "#4caf50" : "#ff9800" }}>
+          ● {connectionStatus}
         </div>
       </header>
 
-      <div className="phone-form" style={{ margin: "20px 0", display: "flex", flexDirection: "column", gap: "16px" }}>
-        <label style={{ fontSize: "20px", fontWeight: "bold" }}>
-          Your Name:
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => handleNameChange(e.target.value)}
-            style={{ fontSize: "22px", padding: "10px", marginTop: "6px" }}
-          />
-        </label>
-
-        <label style={{ fontSize: "20px", fontWeight: "bold", display: "flex", alignItems: "center", gap: "12px" }}>
-          Your Color Tag:
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => handleColorChange(e.target.value)}
-            style={{ width: "60px", height: "50px", cursor: "pointer" }}
-          />
-        </label>
+      {/* Mic Mode Selector */}
+      <div style={{ margin: "16px 0" }}>
+        <div style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "8px" }}>Microphone Control Mode:</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+          <button
+            type="button"
+            className={`radar-pill ${micMode === "latch" ? "active" : ""}`}
+            onClick={() => setMicMode("latch")}
+            style={{
+              padding: "10px 4px",
+              fontSize: "14px",
+              fontWeight: "bold",
+              borderRadius: "10px",
+              border: micMode === "latch" ? "2px solid #fff" : "1px solid #444",
+              background: micMode === "latch" ? "#333" : "#111",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            🔒 Mute Latch<br /><span style={{ fontSize: "11px", opacity: 0.8 }}>(Tap toggle)</span>
+          </button>
+          <button
+            type="button"
+            className={`radar-pill ${micMode === "ptt" ? "active" : ""}`}
+            onClick={() => setMicMode("ptt")}
+            style={{
+              padding: "10px 4px",
+              fontSize: "14px",
+              fontWeight: "bold",
+              borderRadius: "10px",
+              border: micMode === "ptt" ? "2px solid #fff" : "1px solid #444",
+              background: micMode === "ptt" ? "#333" : "#111",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            🎙️ Push-to-Talk<br /><span style={{ fontSize: "11px", opacity: 0.8 }}>(Hold to talk)</span>
+          </button>
+          <button
+            type="button"
+            className={`radar-pill ${micMode === "temp-mute" ? "active" : ""}`}
+            onClick={() => setMicMode("temp-mute")}
+            style={{
+              padding: "10px 4px",
+              fontSize: "14px",
+              fontWeight: "bold",
+              borderRadius: "10px",
+              border: micMode === "temp-mute" ? "2px solid #fff" : "1px solid #444",
+              background: micMode === "temp-mute" ? "#333" : "#111",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            😷 Temp Mute<br /><span style={{ fontSize: "11px", opacity: 0.8 }}>(Cough button)</span>
+          </button>
+        </div>
       </div>
 
-      <div style={{ textAlign: "center", margin: "30px 0" }}>
+      {/* Main Big Mic Control Button */}
+      <div style={{ textAlign: "center", margin: "24px 0" }}>
         <button
           type="button"
-          onClick={toggleMic}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           style={{
             width: "100%",
-            minHeight: "90px",
-            fontSize: "28px",
+            minHeight: "120px",
+            fontSize: "26px",
             fontWeight: "bold",
-            borderRadius: "16px",
-            backgroundColor: isTalking ? "#ff5252" : color,
-            color: "#000",
-            border: "4px solid #fff",
+            borderRadius: "20px",
+            backgroundColor: !micActive
+              ? "#222"
+              : isTransmitting
+              ? "#ff3b30"
+              : "#2c2c2e",
+            color: !micActive ? "#fff" : isTransmitting ? "#ffffff" : "#8e8e93",
+            border: isTransmitting ? "4px solid #ffffff" : "3px solid #555",
             cursor: "pointer",
-            boxShadow: isTalking ? "0 0 24px #ff5252" : "none",
+            boxShadow: isTransmitting ? "0 0 30px rgba(255, 59, 48, 0.8)" : "none",
+            userSelect: "none",
+            touchAction: "manipulation",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            transition: "all 0.1s ease-in-out",
           }}
         >
-          {isTalking ? "MUTE MICROPHONE" : "START SPEAKING"}
+          {!micActive ? (
+            <>
+              <span>🎙️ START MICROPHONE</span>
+              <span style={{ fontSize: "14px", fontWeight: "normal", opacity: 0.8 }}>Tap to enable mic access</span>
+            </>
+          ) : micMode === "ptt" ? (
+            <>
+              <span>{isTransmitting ? "🔴 TRANSMITTING..." : "🎙️ HOLD TO TALK"}</span>
+              <span style={{ fontSize: "14px", fontWeight: "normal" }}>
+                {isTransmitting ? "Release to mute" : "Press and hold button while speaking"}
+              </span>
+            </>
+          ) : micMode === "temp-mute" ? (
+            <>
+              <span>{isTransmitting ? "🔴 LIVE TRANSMITTING" : "🔇 MUTED (COUGHING)"}</span>
+              <span style={{ fontSize: "14px", fontWeight: "normal" }}>
+                {isTransmitting ? "Press and hold to temporarily mute (cough button)" : "Release to resume transmitting"}
+              </span>
+            </>
+          ) : (
+            <>
+              <span>{isTransmitting ? "🔴 LIVE — TAP TO MUTE" : "⚪ MUTED — TAP TO SPEAK"}</span>
+              <span style={{ fontSize: "14px", fontWeight: "normal" }}>
+                {isTransmitting ? "Your speech is live on the table screen" : "Mic is muted. Tap to go live"}
+              </span>
+            </>
+          )}
         </button>
-        <p style={{ marginTop: "12px", fontSize: "18px", color: "var(--fg)" }}>{statusMessage}</p>
+
+        {micActive && (
+          <button
+            type="button"
+            onClick={stopMic}
+            style={{
+              marginTop: "12px",
+              padding: "8px 16px",
+              fontSize: "14px",
+              borderRadius: "8px",
+              backgroundColor: "transparent",
+              color: "var(--muted, #aaa)",
+              border: "1px solid #444",
+              cursor: "pointer",
+            }}
+          >
+            ⏹ Turn Off Microphone
+          </button>
+        )}
+
+        {errorMessage && (
+          <p style={{ marginTop: "12px", fontSize: "16px", color: "#ff5252" }}>⚠️ {errorMessage}</p>
+        )}
       </div>
 
       {lastSpoken && (
         <div
           style={{
-            border: "1px solid var(--border)",
+            border: "1px solid var(--border, #333)",
             borderRadius: "12px",
-            padding: "16px",
-            background: "var(--panel)",
-            marginTop: "20px",
+            padding: "14px",
+            background: "var(--panel, #181818)",
+            margin: "18px 0",
           }}
         >
-          <div style={{ fontSize: "16px", color: "var(--muted)", marginBottom: "4px" }}>Last transmitted:</div>
-          <div style={{ fontSize: "22px", fontWeight: "bold" }}>"{lastSpoken}"</div>
+          <div style={{ fontSize: "14px", color: "var(--muted, #aaa)", marginBottom: "4px" }}>
+            {isTransmitting ? "Transmitted to table:" : "Heard locally (MUTED):"}
+          </div>
+          <div style={{ fontSize: "20px", fontWeight: "bold", color: isTransmitting ? color : "#888" }}>
+            "{lastSpoken}"
+          </div>
         </div>
       )}
 
-      <footer style={{ marginTop: "40px", textAlign: "center", fontSize: "16px", color: "var(--muted)" }}>
-        <a href="/" style={{ color: "var(--fg)", textDecoration: "underline" }}>
-          Back to Host Screen
+      {/* Speaker Identity Form */}
+      <div className="phone-form" style={{ margin: "24px 0", display: "flex", flexDirection: "column", gap: "16px", background: "#111", padding: "16px", borderRadius: "12px", border: "1px solid #333" }}>
+        <h2 style={{ fontSize: "18px", margin: "0 0 4px 0" }}>Speaker Details</h2>
+
+        <label style={{ fontSize: "16px", fontWeight: "bold", display: "flex", flexDirection: "column", gap: "6px" }}>
+          Your Name:
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => handleNameChange(e.target.value)}
+            style={{ fontSize: "18px", padding: "8px", borderRadius: "6px", border: "1px solid #555", background: "#222", color: "#fff" }}
+          />
+        </label>
+
+        <label style={{ fontSize: "16px", fontWeight: "bold", display: "flex", alignItems: "center", gap: "12px" }}>
+          Avatar Color Tag:
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => handleColorChange(e.target.value)}
+            style={{ width: "50px", height: "40px", cursor: "pointer", border: "none", background: "none" }}
+          />
+        </label>
+
+        <label style={{ fontSize: "16px", fontWeight: "bold", display: "flex", flexDirection: "column", gap: "6px" }}>
+          Room PIN (Passcode):
+          <input
+            type="text"
+            value={pin}
+            maxLength={6}
+            placeholder="e.g. 1234"
+            onChange={(e) => handlePinChange(e.target.value)}
+            style={{ fontSize: "18px", padding: "8px", borderRadius: "6px", border: "1px solid #555", background: "#222", color: "#fff", fontFamily: "monospace" }}
+          />
+        </label>
+      </div>
+
+      <footer style={{ marginTop: "32px", textAlign: "center", fontSize: "15px", color: "var(--muted, #aaa)" }}>
+        <a href="/" style={{ color: "var(--fg, #fff)", textDecoration: "underline" }}>
+          Open Host Screen (iPad / Desktop)
         </a>
       </footer>
     </div>

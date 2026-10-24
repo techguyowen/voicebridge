@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import {
+  addSpeaker,
   applyProfile,
   clear,
+  regenerateRoomSecurity,
+  removeSpeaker,
   renameSpeaker,
   setApiKey,
   setBionicReading,
@@ -732,39 +735,95 @@ export function SettingsDrawer({
                 Assign where each family member sits so she gets an instant visual gaze cue (←, ↑, →) on who spoke and where to look.
               </p>
 
-              {speakers.map((s) => (
-                <div key={s.id} className="seating-speaker-card">
-                  <div className="speaker-header-row">
-                    <input
-                      type="color"
-                      value={s.color}
-                      onChange={(e) => setSpeakerColor(s.id, e.target.value)}
-                      aria-label={`Color for ${s.name}`}
-                    />
-                    <input
-                      type="text"
-                      value={s.name}
-                      onChange={(e) => renameSpeaker(s.id, e.target.value)}
-                      aria-label={`Name for speaker ${s.id}`}
-                      style={{ fontWeight: "bold" }}
-                    />
-                  </div>
-
-                  <div className="seating-buttons-row">
-                    <span style={{ fontSize: "16px", fontWeight: "bold" }}>Seating:</span>
-                    {SEATING_OPTIONS.map((pos) => (
-                      <button
-                        key={pos.id}
-                        type="button"
-                        className={`seating-btn ${s.position === pos.id ? "active" : ""}`}
-                        onClick={() => setSpeakerPosition(s.id, pos.id)}
-                      >
-                        {pos.label}
-                      </button>
-                    ))}
-                  </div>
+              {speakers.length === 0 ? (
+                <div style={{ padding: "16px", background: "var(--panel)", borderRadius: "8px", border: "1px dashed var(--border)", marginBottom: "16px" }}>
+                  <p style={{ margin: 0, fontSize: "16px", color: "var(--muted)" }}>
+                    No table speakers registered yet. When family members scan the QR code to connect their phones, they will appear here automatically. You can also add speakers manually below.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                speakers.map((s) => (
+                  <div key={s.id} className="seating-speaker-card">
+                    <div className="speaker-header-row" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => setSpeakerColor(s.id, e.target.value)}
+                        aria-label={`Color for ${s.name}`}
+                      />
+                      <input
+                        type="text"
+                        value={s.name}
+                        onChange={(e) => renameSpeaker(s.id, e.target.value)}
+                        aria-label={`Name for speaker ${s.id}`}
+                        style={{ fontWeight: "bold", flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="key-action-btn"
+                        onClick={() => removeSpeaker(s.id)}
+                        title={`Remove ${s.name}`}
+                        aria-label={`Remove speaker ${s.name}`}
+                        style={{ color: "#ff5252" }}
+                      >
+                        × Remove
+                      </button>
+                    </div>
+
+                    <div className="seating-buttons-row">
+                      <span style={{ fontSize: "16px", fontWeight: "bold" }}>Seating:</span>
+                      {SEATING_OPTIONS.map((pos) => (
+                        <button
+                          key={pos.id}
+                          type="button"
+                          className={`seating-btn ${s.position === pos.id ? "active" : ""}`}
+                          onClick={() => setSpeakerPosition(s.id, pos.id)}
+                        >
+                          {pos.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+
+              <div style={{ marginTop: "16px" }}>
+                <button
+                  type="button"
+                  className="key-action-btn"
+                  onClick={() => addSpeaker(`Speaker ${speakers.length + 1}`)}
+                  style={{ fontSize: "16px", padding: "10px 16px", fontWeight: "bold" }}
+                >
+                  + Add Speaker
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset style={{ marginTop: "24px" }}>
+              <legend>Room Security &amp; Phone Microphones</legend>
+              <p style={{ margin: "0 0 12px 0", fontSize: "16px", color: "var(--muted)" }}>
+                Phones require this Room Code and PIN to connect and stream speech to this table display.
+              </p>
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "center", marginBottom: "16px" }}>
+                <div>
+                  <span style={{ fontSize: "14px", color: "var(--muted)", display: "block" }}>Room Code:</span>
+                  <strong style={{ fontSize: "20px", color: "var(--fg)" }}>{settings.roomCode}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: "14px", color: "var(--muted)", display: "block" }}>Passcode PIN:</span>
+                  <strong style={{ fontSize: "20px", color: "var(--fg)", fontFamily: "monospace", letterSpacing: "2px" }}>
+                    {settings.roomPin}
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  className="key-action-btn"
+                  onClick={() => regenerateRoomSecurity()}
+                  style={{ fontSize: "15px", padding: "8px 14px" }}
+                >
+                  🔄 Regenerate Code &amp; PIN
+                </button>
+              </div>
             </fieldset>
           </div>
         )}
