@@ -2,10 +2,12 @@ import { useEffect } from "react";
 import type { Speaker } from "../types";
 import {
   getState,
+  removeDevice,
   renameSpeaker,
   resetToAutoSpeaker,
   setActiveManualSpeaker,
   setActiveSpeaker,
+  toggleMuteSpeaker,
   useStore,
 } from "./store";
 
@@ -36,6 +38,7 @@ export function TableRadar({ onOpenQr }: TableRadarProps = {}): React.JSX.Elemen
     listening,
     audioLevel,
     lastSpeechTimestamp,
+    mutedSpeakerIds,
   } = useStore();
 
   useEffect(() => {
@@ -141,27 +144,55 @@ export function TableRadar({ onOpenQr }: TableRadarProps = {}): React.JSX.Elemen
         >
           {activeManualSpeakerId !== null ? "🔓 Auto" : "✨ Auto"}
         </button>
+        {onOpenQr && (
+          <button
+            type="button"
+            className="radar-pill radar-devices"
+            onClick={onOpenQr}
+            aria-label={`Manage connected devices (${speakers.length})`}
+            title="Manage connected phone microphones and table devices"
+          >
+            📱 Devices ({speakers.length})
+          </button>
+        )}
         {speakers.map((speaker, i) => {
           const isLocked = activeManualSpeakerId === speaker.id;
+          const isMuted = mutedSpeakerIds.includes(speaker.id);
           const isSpeaking =
             listening &&
+            !isMuted &&
             (Math.max(audioLevel.left, audioLevel.right) > 8 ||
               (lastSpeechTimestamp > 0 && Date.now() - lastSpeechTimestamp < 2500));
           const isCurrent = !isLocked && isSpeaking && currentSpeakerId === speaker.id;
           const arrow = arrowForSpeaker(speaker);
           return (
-            <button
+            <div
               key={speaker.id}
-              type="button"
-              className={`radar-pill ${isLocked ? "locked active" : ""} ${isCurrent ? "speaking" : ""}`}
-              style={{ ["--pill-color" as string]: speaker.color }}
+              role="button"
+              tabIndex={0}
+              className={`radar-pill ${isLocked ? "locked active" : ""} ${isCurrent ? "speaking" : ""} ${isMuted ? "muted" : ""}`}
+              style={{
+                ["--pill-color" as string]: speaker.color,
+                opacity: isMuted ? 0.55 : 1,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "999px",
+              }}
               onClick={() => handleSpeakerClick(speaker)}
               onDoubleClick={() => {
                 const next = window.prompt(`Rename "${speaker.name}" to:`, speaker.name);
                 if (next && next.trim()) renameSpeaker(speaker.id, next.trim());
               }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleSpeakerClick(speaker);
+                }
+              }}
               aria-pressed={isLocked}
-              aria-label={`${speaker.name}${isLocked ? " (locked)" : ""}, press ${i + 1} to select, double-click to rename`}
+              aria-label={`${speaker.name}${isLocked ? " (locked)" : ""}${isMuted ? " (muted)" : ""}, press ${i + 1} to select, double-click to rename`}
               title={
                 isLocked
                   ? `Locked on ${speaker.name} — tap to release • double-click to rename`
@@ -170,8 +201,55 @@ export function TableRadar({ onOpenQr }: TableRadarProps = {}): React.JSX.Elemen
             >
               <span className="radar-dot" style={{ backgroundColor: speaker.color }} aria-hidden="true" />
               {arrow ? <span aria-hidden="true">{arrow} </span> : null}
-              {isLocked ? "🔒 " : ""}{speaker.name}
-            </button>
+              {isMuted ? "🔇 " : isLocked ? "🔒 " : ""}{speaker.name}
+              <span className="radar-pill-actions" style={{ display: "inline-flex", gap: "4px", marginLeft: "4px" }}>
+                <button
+                  type="button"
+                  className="radar-action-btn mute-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleMuteSpeaker(speaker.id);
+                  }}
+                  title={isMuted ? `Turn on / unmute ${speaker.name}` : `Turn off / mute ${speaker.name}`}
+                  aria-label={isMuted ? `Unmute ${speaker.name}` : `Mute ${speaker.name}`}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: "2px 4px",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    minHeight: "auto",
+                    lineHeight: 1,
+                    borderRadius: "4px",
+                  }}
+                >
+                  {isMuted ? "🎙️" : "🔇"}
+                </button>
+                <button
+                  type="button"
+                  className="radar-action-btn remove-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeDevice(speaker.id);
+                  }}
+                  title={`Disconnect / remove ${speaker.name}`}
+                  aria-label={`Remove device ${speaker.name}`}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: "2px 4px",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    minHeight: "auto",
+                    lineHeight: 1,
+                    color: "var(--danger, #ff7a7a)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
           );
         })}
       </div>

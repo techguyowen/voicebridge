@@ -9,6 +9,16 @@ export interface MultiDeviceSyncOptions {
   pin?: string;
 }
 
+let hostSyncInstance: MultiDeviceSync | null = null;
+
+export function getHostSync(): MultiDeviceSync | null {
+  return hostSyncInstance;
+}
+
+export function setHostSync(sync: MultiDeviceSync | null): void {
+  hostSyncInstance = sync;
+}
+
 export class MultiDeviceSync {
   private room: string;
   private pin: string;
@@ -34,6 +44,9 @@ export class MultiDeviceSync {
     this.room = room;
     this.pin = options?.pin || "";
     this.isHost = options?.isHost ?? true;
+    if (this.isHost) {
+      hostSyncInstance = this;
+    }
     this.clientId = `client-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
     const cleanRoom = (this.room || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "default";
@@ -160,7 +173,10 @@ export class MultiDeviceSync {
     if (msg.type === "utterance" && msg.utterance) {
       key = `u:${msg.utterance.id}:${msg.utterance.text}:${msg.utterance.final}`;
     } else {
-      key = `${msg.type}:${msg.senderName}:${msg.room}:${msg.pin || ""}`;
+      const msgId = (msg as { _msgId?: string })._msgId;
+      key = msgId
+        ? `${msg.type}:${msgId}`
+        : `${msg.type}:${msg.senderName}:${msg.room}:${msg.targetId || ""}:${msg.pin || ""}`;
     }
 
     if (this.seenMessages.has(key)) {
@@ -200,11 +216,12 @@ export class MultiDeviceSync {
   }
 
   send(msg: Omit<SyncMessage, "room">): void {
-    const fullMsg: SyncMessage & { _senderId: string } = {
+    const fullMsg: SyncMessage & { _senderId: string; _msgId?: string } = {
       ...msg,
       room: this.room,
       pin: msg.pin || this.pin,
       _senderId: this.clientId,
+      _msgId: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     };
 
     // If join packet, remember it so connect/reconnect automatically resends it
@@ -225,8 +242,27 @@ export class MultiDeviceSync {
     }
   }
 
+  sendKick(targetId: string): void {
+    this.send({
+      type: "kick",
+      senderName: this.isHost ? "Host" : "Device",
+      targetId,
+    });
+  }
+
+  sendMute(targetId: string, muted: boolean): void {
+    this.send({
+      type: muted ? "mute" : "unmute",
+      senderName: this.isHost ? "Host" : "Device",
+      targetId,
+    });
+  }
+
   destroy(): void {
     this.isDestroyed = true;
+    if (hostSyncInstance === this) {
+      hostSyncInstance = null;
+    }
     this.handlers.clear();
     this.statusHandlers.clear();
     this.messageQueue = [];

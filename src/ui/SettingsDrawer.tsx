@@ -4,8 +4,9 @@ import {
   applyProfile,
   clear,
   regenerateRoomSecurity,
-  removeSpeaker,
+  removeDevice,
   renameSpeaker,
+  toggleMuteSpeaker,
   setApiKey,
   setBionicReading,
   setCustomColors,
@@ -262,7 +263,7 @@ export function SettingsDrawer({
   onOpenTutorial?: () => void;
   onOpenTodGuide?: () => void;
 }): React.JSX.Element {
-  const { settings, speakers } = useStore();
+  const { settings, speakers, mutedSpeakerIds } = useStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "presets");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
 
@@ -761,12 +762,22 @@ export function SettingsDrawer({
                       <button
                         type="button"
                         className="key-action-btn"
-                        onClick={() => removeSpeaker(s.id)}
+                        onClick={() => toggleMuteSpeaker(s.id)}
+                        title={mutedSpeakerIds.includes(s.id) ? `Turn on ${s.name}` : `Turn off / mute ${s.name}`}
+                        aria-label={mutedSpeakerIds.includes(s.id) ? `Unmute speaker ${s.name}` : `Mute speaker ${s.name}`}
+                        style={{ color: mutedSpeakerIds.includes(s.id) ? "var(--fg)" : "var(--muted)" }}
+                      >
+                        {mutedSpeakerIds.includes(s.id) ? "🎙️ Turn On" : "🔇 Turn Off / Mute"}
+                      </button>
+                      <button
+                        type="button"
+                        className="key-action-btn"
+                        onClick={() => removeDevice(s.id)}
                         title={`Remove ${s.name}`}
                         aria-label={`Remove speaker ${s.name}`}
                         style={{ color: "#ff5252" }}
                       >
-                        × Remove
+                        ✕ Remove
                       </button>
                     </div>
 
@@ -1053,6 +1064,7 @@ export function SettingsDrawer({
                   onChange={(e) => setDeviceId(e.target.value)}
                 >
                   <option value="">Default System / iPad Microphone</option>
+                  <option value="disabled">🚫 None / Disabled (Remote Phones Only)</option>
                   {devices.map((d, i) => (
                     <option key={d.deviceId || i} value={d.deviceId}>
                       {d.label || `Microphone ${i + 1}`}

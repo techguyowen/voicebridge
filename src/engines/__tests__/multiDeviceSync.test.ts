@@ -272,4 +272,31 @@ describe("MultiDeviceSync", () => {
     expect((sync as any).statusHandlers.size).toBe(0);
     expect((sync as any).messageQueue).toHaveLength(0);
   });
+
+  it("sends kick and mute messages with correct targetId and sender", () => {
+    const sync = new MultiDeviceSync("TABLE-KICK", { isHost: true, pin: "4321" });
+    const sentMessages: any[] = [];
+    (sync as any).channel = {
+      postMessage: (msg: any) => sentMessages.push(msg),
+      close: () => {},
+    };
+
+    sync.sendKick("phone_device_1");
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]?.type).toBe("kick");
+    expect(sentMessages[0]?.targetId).toBe("phone_device_1");
+    expect(sentMessages[0]?.senderName).toBe("Host");
+
+    sync.sendMute("phone_device_2", true);
+    expect(sentMessages).toHaveLength(2);
+    expect(sentMessages[1]?.type).toBe("mute");
+    expect(sentMessages[1]?.targetId).toBe("phone_device_2");
+
+    sync.sendMute("phone_device_2", false);
+    expect(sentMessages).toHaveLength(3);
+    expect(sentMessages[2]?.type).toBe("unmute");
+    expect(sentMessages[2]?.targetId).toBe("phone_device_2");
+
+    sync.destroy();
+  });
 });

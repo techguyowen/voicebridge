@@ -816,6 +816,33 @@ a { color: var(--fg); }
   color: var(--btn-fg);
 }
 
+.radar-pill.muted {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.radar-pill-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.radar-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 14px;
+  border-radius: 4px;
+  min-height: auto;
+  line-height: 1;
+  transition: opacity 0.1s ease, background 0.1s ease;
+}
+
+.radar-action-btn:hover {
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+
 .radar-dot {
   width: 10px;
   height: 10px;

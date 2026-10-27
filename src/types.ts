@@ -18,11 +18,12 @@ export interface Utterance {
 }
 
 export interface SyncMessage {
-  type: "utterance" | "join" | "leave" | "status";
+  type: "utterance" | "join" | "leave" | "status" | "kick" | "mute" | "unmute";
   room: string;
   senderName: string;
   senderColor?: string;
   pin?: string;
+  targetId?: string; // target speaker ID or name
   utterance?: Utterance;
 }
 

@@ -16,6 +16,8 @@ export function PhoneTransmitter(): React.JSX.Element {
 
   const [micActive, setMicActive] = useState(false);
   const [isTransmitting, setIsTransmitting] = useState(false);
+  const [isKicked, setIsKicked] = useState(false);
+  const [isHostMuted, setIsHostMuted] = useState(false);
   const [lastSpoken, setLastSpoken] = useState("");
   const [connectionStatus, setConnectionStatus] = useState("Connecting to tablet...");
   const [errorMessage, setErrorMessage] = useState("");
@@ -25,6 +27,9 @@ export function PhoneTransmitter(): React.JSX.Element {
   const isTransmittingRef = useRef(isTransmitting);
   const pinRef = useRef(pin);
   const micModeRef = useRef(micMode);
+  const micActiveRef = useRef(micActive);
+  const nameRef = useRef(name);
+  const isHostMutedRef = useRef(isHostMuted);
 
   // Turn management: Maintain a single stable ID for active speaking turn
   const currentTurnIdRef = useRef<string | null>(null);
@@ -34,6 +39,18 @@ export function PhoneTransmitter(): React.JSX.Element {
   useEffect(() => {
     isTransmittingRef.current = isTransmitting;
   }, [isTransmitting]);
+
+  useEffect(() => {
+    micActiveRef.current = micActive;
+  }, [micActive]);
+
+  useEffect(() => {
+    nameRef.current = name;
+  }, [name]);
+
+  useEffect(() => {
+    isHostMutedRef.current = isHostMuted;
+  }, [isHostMuted]);
 
   useEffect(() => {
     pinRef.current = pin;
@@ -90,6 +107,29 @@ export function PhoneTransmitter(): React.JSX.Element {
       setConnectionStatus(status);
     });
 
+    sync.onMessage((msg) => {
+      const curName = nameRef.current;
+      const speakerId = curName.toLowerCase().replace(/\s+/g, "_") || "family_member";
+      const isTarget =
+        msg.targetId === speakerId ||
+        msg.targetId === curName ||
+        msg.targetId === "all";
+
+      if (msg.type === "kick" && isTarget) {
+        stopMicRef.current();
+        setIsKicked(true);
+      } else if (msg.type === "mute" && isTarget) {
+        finalizeActiveTurn();
+        setIsHostMuted(true);
+        setIsTransmitting(false);
+      } else if (msg.type === "unmute" && isTarget) {
+        setIsHostMuted(false);
+        if (micActiveRef.current) {
+          setIsTransmitting(true);
+        }
+      }
+    });
+
     sync.send({
       type: "join",
       senderName: name,
@@ -134,6 +174,7 @@ export function PhoneTransmitter(): React.JSX.Element {
   };
 
   const startMic = () => {
+    setIsKicked(false);
     const activePin = ensurePin();
     if (!activePin) return;
 
@@ -151,7 +192,7 @@ export function PhoneTransmitter(): React.JSX.Element {
 
       rec.onstart = () => {
         setMicActive(true);
-        if (micModeRef.current === "ptt") {
+        if (micModeRef.current === "ptt" || isHostMutedRef.current) {
           setIsTransmitting(false);
         } else {
           setIsTransmitting(true);
@@ -176,8 +217,8 @@ export function PhoneTransmitter(): React.JSX.Element {
           setLastSpoken(text);
           lastSpokenTextRef.current = text;
 
-          // Only transmit to host if mic is unmuted!
-          if (isTransmittingRef.current) {
+          // Only transmit to host if mic is unmuted and not host-muted!
+          if (isTransmittingRef.current && !isHostMutedRef.current) {
             const senderId = name.toLowerCase().replace(/\s+/g, "_") || "family_member";
             if (!currentTurnIdRef.current) {
               turnStartMsRef.current = Date.now();
@@ -249,8 +290,27 @@ export function PhoneTransmitter(): React.JSX.Element {
     vibrate(40);
   };
 
+  const stopMicRef = useRef(stopMic);
+  stopMicRef.current = stopMic;
+
+  const handleReconnect = () => {
+    setIsKicked(false);
+    setIsHostMuted(false);
+    syncRef.current?.send({
+      type: "join",
+      senderName: name,
+      senderColor: color,
+      pin: pinRef.current.trim(),
+    });
+    startMic();
+  };
+
   // Dedicated button interactions depending on MicMode
   const handleLatchToggle = () => {
+    if (isHostMuted) {
+      vibrate(40);
+      return;
+    }
     if (isTransmitting) {
       finalizeActiveTurn();
       setIsTransmitting(false);
@@ -262,6 +322,10 @@ export function PhoneTransmitter(): React.JSX.Element {
   };
 
   const handlePttDown = (e: React.PointerEvent) => {
+    if (isHostMuted) {
+      vibrate(40);
+      return;
+    }
     try {
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     } catch {}
@@ -291,7 +355,9 @@ export function PhoneTransmitter(): React.JSX.Element {
     try {
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {}
-    setIsTransmitting(true);
+    if (!isHostMuted) {
+      setIsTransmitting(true);
+    }
     vibrate(20);
   };
 
@@ -323,6 +389,64 @@ export function PhoneTransmitter(): React.JSX.Element {
           ● {connectionStatus}
         </div>
       </header>
+
+      {/* Disconnected / Kicked Banner */}
+      {isKicked && (
+        <div
+          role="alert"
+          style={{
+            background: "#b71c1c",
+            color: "#ffffff",
+            padding: "16px",
+            borderRadius: "12px",
+            marginBottom: "16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            alignItems: "center",
+            textAlign: "center",
+            fontWeight: "bold",
+            fontSize: "18px",
+          }}
+        >
+          <span>⚠️ Disconnected from table by host</span>
+          <button
+            type="button"
+            onClick={handleReconnect}
+            style={{
+              background: "#ffffff",
+              color: "#b71c1c",
+              padding: "10px 24px",
+              fontSize: "16px",
+              fontWeight: "bold",
+              borderRadius: "8px",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Reconnect
+          </button>
+        </div>
+      )}
+
+      {/* Host Muted Banner */}
+      {isHostMuted && (
+        <div
+          role="alert"
+          style={{
+            background: "#e65100",
+            color: "#ffffff",
+            padding: "12px 16px",
+            borderRadius: "12px",
+            marginBottom: "16px",
+            textAlign: "center",
+            fontWeight: "bold",
+            fontSize: "16px",
+          }}
+        >
+          🔇 Muted by table host
+        </div>
+      )}
 
       {/* Mic Mode Selector */}
       <div style={{ margin: "16px 0" }}>

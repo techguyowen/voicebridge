@@ -239,9 +239,13 @@ export default function App(): React.JSX.Element {
       }
 
       if (msg.type === "utterance" && msg.utterance) {
+        const uSpeakerId = msg.utterance.speakerId || speakerId;
+        if (getState().mutedSpeakerIds.includes(uSpeakerId)) {
+          return;
+        }
         addOrUpdateUtterance({
           ...msg.utterance,
-          speakerId: msg.utterance.speakerId || speakerId,
+          speakerId: uSpeakerId,
         });
       }
     });
@@ -279,11 +283,16 @@ export default function App(): React.JSX.Element {
 
   const start = useCallback(async (): Promise<void> => {
     if (getState().listening) return;
+    const currentSettings = getState().settings;
+    if (currentSettings.deviceId === "disabled") {
+      setListening(true);
+      setStatus({ state: "listening" });
+      return;
+    }
     setListening(true);
     setStatus({ state: "connecting" });
 
     try {
-      const currentSettings = getState().settings;
       const engine = await createEngine(currentSettings);
       engineRef.current = engine;
 
@@ -567,7 +576,9 @@ export default function App(): React.JSX.Element {
           <div className={"speaker-pill " + (listening ? "is-listening" : "")} role="status" aria-label="Microphone audio">
             <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, #ffd400)" }} aria-hidden="true" />
             <span className="speaker-pill-name">
-              🎙 {settings.deviceId && /roger|phonak/i.test(settings.deviceId) ? "Roger Loop" : "Microphone"} • {listening ? "Listening" : "Ready"}
+              {settings.deviceId === "disabled"
+                ? `🎙️ Local Mic Off • ${listening ? "Remote Phones Active" : "Ready"}`
+                : `🎙 ${settings.deviceId && /roger|phonak/i.test(settings.deviceId) ? "Roger Loop" : "Microphone"} • ${listening ? "Listening" : "Ready"}`}
             </span>
             <span className={"wave " + (soundActive ? "playing" : "")} aria-hidden="true">
               <i /><i /><i /><i />
@@ -579,7 +590,17 @@ export default function App(): React.JSX.Element {
             role="status"
             aria-label={activeSpeaker ? `Active speaker: ${activeSpeaker.name}` : "No active speaker"}
           >
-            {activeSpeaker && (
+            {settings.deviceId === "disabled" && !activeSpeaker ? (
+              <>
+                <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, #ffd400)" }} aria-hidden="true" />
+                <span className="speaker-pill-name">
+                  🎙️ Local Mic Off • {listening ? "Remote Phones Active" : "Ready"}
+                </span>
+                <span className={`wave ${soundActive ? "playing" : ""}`} aria-hidden="true">
+                  <i /><i /><i /><i />
+                </span>
+              </>
+            ) : activeSpeaker ? (
               <>
                 <span
                   className="speaker-pill-dot"
@@ -594,7 +615,7 @@ export default function App(): React.JSX.Element {
                   <i /><i /><i /><i />
                 </span>
               </>
-            )}
+            ) : null}
           </div>
         )}
 

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { AudioLevel, EngineStatus, Speaker, SpeakerId, Utterance } from "../types";
+import { getHostSync } from "../engines/multiDeviceSync";
 
 export type Theme = "yellow-on-black" | "white-on-black" | "black-on-white" | "cyan-on-black" | "amber-on-dark" | "custom";
 export type Mode = "table" | "classroom" | "solo" | "diagnostics";
@@ -62,6 +63,7 @@ export interface Settings {
 export interface StoreState {
   speakers: Speaker[];
   utterances: Utterance[];
+  mutedSpeakerIds: string[];
   settings: Settings;
   status: EngineStatus;
   listening: boolean;
@@ -256,21 +258,22 @@ const DEMO_CLASS_UTTERANCES: Utterance[] = [
   { id: "demo-5", text: "The primary chemical output produced here is glucose, which plants use for cellular respiration.", startMs: 21500, endMs: 28000, speakerId: null, final: true },
 ];
 
-export function loadTranscript(): { speakers: Speaker[]; utterances: Utterance[] } {
+export function loadTranscript(): { speakers: Speaker[]; utterances: Utterance[]; mutedSpeakerIds: string[] } {
   if (typeof window !== "undefined") {
     const params = new URLSearchParams(window.location.search);
     if (params.get("demo") === "1" || params.get("sample") === "1") {
-      return { speakers: [...DEFAULT_SPEAKERS], utterances: [...DEMO_CLASS_UTTERANCES] };
+      return { speakers: [...DEFAULT_SPEAKERS], utterances: [...DEMO_CLASS_UTTERANCES], mutedSpeakerIds: [] };
     }
   }
   const raw = readJSON(TRANSCRIPT_KEY) as { speakers?: Speaker[]; utterances?: Utterance[] } | undefined;
-  if (!raw || typeof raw !== "object") return { speakers: [...DEFAULT_SPEAKERS], utterances: [] };
+  if (!raw || typeof raw !== "object") return { speakers: [...DEFAULT_SPEAKERS], utterances: [], mutedSpeakerIds: [] };
   const rawSpeakers = Array.isArray(raw.speakers) ? raw.speakers : [];
   const legacyRegex = /^(Mom \(Left\)|Dad \(Right\)|Across Table)$/i;
   const filteredSpeakers = rawSpeakers.filter((s) => s && typeof s.name === "string" && !legacyRegex.test(s.name.trim()));
   return {
     speakers: filteredSpeakers,
     utterances: Array.isArray(raw.utterances) ? raw.utterances.filter((u) => u && u.final) : [],
+    mutedSpeakerIds: [],
   };
 }
 
@@ -279,6 +282,7 @@ const persisted = loadTranscript();
 let state: StoreState = {
   speakers: persisted.speakers,
   utterances: persisted.utterances,
+  mutedSpeakerIds: [],
   settings: loadSettings(),
   status: { state: "idle" },
   listening: false,
@@ -368,6 +372,9 @@ export function addOrUpdateUtterance(u: Utterance): void {
     const assignedSpeakerId: SpeakerId | null =
       u.speakerId === null ? resolveHeldSpeaker(s) : u.speakerId;
     const effective: Utterance = { ...u, speakerId: assignedSpeakerId };
+    if (effective.speakerId && s.mutedSpeakerIds.includes(effective.speakerId)) {
+      return s;
+    }
     const speakers = effective.speakerId ? ensureSpeaker(s.speakers, effective.speakerId) : s.speakers;
     // Advance the conversational turn.
     const currentSpeakerId = effective.speakerId ?? s.currentSpeakerId;
@@ -587,20 +594,65 @@ export function addSpeaker(name: string, color?: string, position?: SeatingPosit
   return newId;
 }
 
-export function removeSpeaker(id: SpeakerId): void {
+export function toggleMuteSpeaker(id: SpeakerId): void {
+  update((s) => {
+    const isMuted = s.mutedSpeakerIds.includes(id);
+    const mutedSpeakerIds = isMuted
+      ? s.mutedSpeakerIds.filter((m) => m !== id)
+      : [...s.mutedSpeakerIds, id];
+    return { ...s, mutedSpeakerIds };
+  });
+  const nowMuted = state.mutedSpeakerIds.includes(id);
+  getHostSync()?.sendMute(id, nowMuted);
+}
+
+export function muteSpeaker(id: SpeakerId, muted: boolean): void {
+  update((s) => {
+    const isMuted = s.mutedSpeakerIds.includes(id);
+    if (muted && !isMuted) {
+      return { ...s, mutedSpeakerIds: [...s.mutedSpeakerIds, id] };
+    }
+    if (!muted && isMuted) {
+      return { ...s, mutedSpeakerIds: s.mutedSpeakerIds.filter((m) => m !== id) };
+    }
+    return s;
+  });
+  getHostSync()?.sendMute(id, muted);
+}
+
+export function removeDevice(id: SpeakerId): void {
   update((s) => {
     const speakers = s.speakers.filter((sp) => sp.id !== id);
+    const mutedSpeakerIds = s.mutedSpeakerIds.filter((m) => m !== id);
     const activeManualSpeakerId = s.activeManualSpeakerId === id ? null : s.activeManualSpeakerId;
     const currentSpeakerId = s.currentSpeakerId === id ? (speakers[0]?.id ?? "s1") : s.currentSpeakerId;
     const latestSpeakerId = s.latestSpeakerId === id ? null : s.latestSpeakerId;
     return {
       ...s,
       speakers,
+      mutedSpeakerIds,
       activeManualSpeakerId,
       currentSpeakerId,
       latestSpeakerId,
     };
   });
+  getHostSync()?.sendKick(id);
+}
+
+export function disconnectAllDevices(): void {
+  update((s) => ({
+    ...s,
+    speakers: [],
+    mutedSpeakerIds: [],
+    activeManualSpeakerId: null,
+    latestSpeakerId: null,
+    currentSpeakerId: "s1",
+  }));
+  getHostSync()?.sendKick("all");
+}
+
+export function removeSpeaker(id: SpeakerId): void {
+  removeDevice(id);
 }
 
 export function upsertSpeaker(sp: { id: SpeakerId; name: string; color?: string; position?: SeatingPosition }): void {
@@ -890,6 +942,7 @@ export function resetStore(): void {
   state = {
     speakers: [...DEFAULT_SPEAKERS],
     utterances: [],
+    mutedSpeakerIds: [],
     settings: {
       ...DEFAULT_SETTINGS,
       roomCode: generateRoomCode(),

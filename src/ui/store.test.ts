@@ -13,6 +13,7 @@ import {
   clampFont,
   clear,
   clearInterimUtterances,
+  disconnectAllDevices,
   dismissAlert,
   editText,
   generateRoomCode,
@@ -20,8 +21,11 @@ import {
   getState,
   loadSettings,
   loadTranscript,
+  muteSpeaker,
   persist,
+  removeDevice,
   setListening,
+  toggleMuteSpeaker,
   TRANSCRIPT_KEY,
   regenerateRoomSecurity,
   relabel,
@@ -1157,5 +1161,135 @@ describe("VoxStreamDisplay with connected phone speech", () => {
     expect(getState().utterances).toHaveLength(1);
     expect(getState().utterances[0]?.text).toBe("How are you doing today?");
     expect(getState().utterances[0]?.final).toBe(true);
+  });
+});
+
+describe("Device muting and removal controls", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it("initializes mutedSpeakerIds as an empty array", () => {
+    expect(getState().mutedSpeakerIds).toEqual([]);
+  });
+
+  it("toggleMuteSpeaker toggles a speaker in and out of mutedSpeakerIds", () => {
+    addSpeaker("Alice");
+    const aliceId = getState().speakers[0]!.id;
+
+    expect(getState().mutedSpeakerIds).not.toContain(aliceId);
+
+    // Mute Alice
+    toggleMuteSpeaker(aliceId);
+    expect(getState().mutedSpeakerIds).toContain(aliceId);
+
+    // Unmute Alice
+    toggleMuteSpeaker(aliceId);
+    expect(getState().mutedSpeakerIds).not.toContain(aliceId);
+  });
+
+  it("muteSpeaker explicitly mutes and unmutes a speaker", () => {
+    addSpeaker("Bob");
+    const bobId = getState().speakers[0]!.id;
+
+    muteSpeaker(bobId, true);
+    expect(getState().mutedSpeakerIds).toContain(bobId);
+
+    // Repeated call is idempotent
+    muteSpeaker(bobId, true);
+    expect(getState().mutedSpeakerIds).toEqual([bobId]);
+
+    // Unmute
+    muteSpeaker(bobId, false);
+    expect(getState().mutedSpeakerIds).not.toContain(bobId);
+
+    // Repeated unmute is idempotent
+    muteSpeaker(bobId, false);
+    expect(getState().mutedSpeakerIds).toEqual([]);
+  });
+
+  it("removeDevice removes speaker from speakers and mutedSpeakerIds", () => {
+    addSpeaker("Charlie");
+    addSpeaker("David");
+    const [sp1, sp2] = getState().speakers;
+    expect(sp1).toBeDefined();
+    expect(sp2).toBeDefined();
+
+    // Mute sp1
+    toggleMuteSpeaker(sp1!.id);
+    expect(getState().mutedSpeakerIds).toContain(sp1!.id);
+
+    // Remove sp1
+    removeDevice(sp1!.id);
+    expect(getState().speakers.some((s) => s.id === sp1!.id)).toBe(false);
+    expect(getState().mutedSpeakerIds).not.toContain(sp1!.id);
+    expect(getState().speakers).toHaveLength(1);
+    expect(getState().speakers[0]!.id).toBe(sp2!.id);
+  });
+
+  it("disconnectAllDevices clears all speakers and mutedSpeakerIds", () => {
+    addSpeaker("Elena");
+    addSpeaker("Frank");
+    const elenaId = getState().speakers[0]!.id;
+    muteSpeaker(elenaId, true);
+
+    expect(getState().speakers).toHaveLength(2);
+    expect(getState().mutedSpeakerIds).toHaveLength(1);
+
+    disconnectAllDevices();
+
+    expect(getState().speakers).toHaveLength(0);
+    expect(getState().mutedSpeakerIds).toHaveLength(0);
+  });
+
+  it("addOrUpdateUtterance drops utterances if effective speaker is muted", () => {
+    addSpeaker("Grace");
+    const graceId = getState().speakers[0]!.id;
+
+    // Normal utterance arrives
+    addOrUpdateUtterance({
+      id: "u-grace-1",
+      text: "Hello everyone!",
+      startMs: 0,
+      endMs: 1000,
+      speakerId: graceId,
+      final: true,
+    });
+    expect(getState().utterances).toHaveLength(1);
+    expect(getState().utterances[0]!.text).toBe("Hello everyone!");
+
+    // Mute Grace
+    muteSpeaker(graceId, true);
+
+    // New utterance from Grace arrives while muted
+    addOrUpdateUtterance({
+      id: "u-grace-2",
+      text: "Can you hear me?",
+      startMs: 1500,
+      endMs: 2500,
+      speakerId: graceId,
+      final: true,
+    });
+
+    // Should be dropped! Utterance count still 1
+    expect(getState().utterances).toHaveLength(1);
+    expect(getState().utterances.some((u) => u.id === "u-grace-2")).toBe(false);
+
+    // Unmute Grace
+    muteSpeaker(graceId, false);
+
+    // New utterance from Grace arrives after unmute
+    addOrUpdateUtterance({
+      id: "u-grace-3",
+      text: "I am back!",
+      startMs: 3000,
+      endMs: 4000,
+      speakerId: graceId,
+      final: true,
+    });
+
+    // Should be added
+    expect(getState().utterances).toHaveLength(2);
+    expect(getState().utterances[1]!.text).toBe("I am back!");
   });
 });
