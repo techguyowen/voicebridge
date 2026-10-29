@@ -88,7 +88,7 @@ export const RECENT_RELABEL_MS = 15_000;
 
 export const SETTINGS_KEY = "alt.settings.v3";
 export const TRANSCRIPT_KEY = "alt.transcript.v3";
-const PALETTE = ["#ffd400", "#4fc3f7", "#a5d6a7", "#f48fb1", "#ce93d8", "#ffcc80", "#00f0ff", "#ff7043"];
+const PALETTE = ["#4fc3f7", "#a5d6a7", "#ce93d8", "#f48fb1", "#ffcc80", "#00f0ff", "#ffd400", "#ff7043"];
 
 export const DEFAULT_SPEAKERS: Speaker[] = [];
 
@@ -107,7 +107,7 @@ export function generateRoomPin(): string {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  theme: "yellow-on-black",
+  theme: "white-on-black",
   fontPx: 40,
   mode: "table",
   apiKey: "",
@@ -183,7 +183,8 @@ export function loadSettings(): Settings {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_SETTINGS };
 
   const validThemes: Theme[] = ["yellow-on-black", "white-on-black", "black-on-white", "cyan-on-black", "amber-on-dark", "custom"];
-  const theme = validThemes.includes(raw.theme as Theme) ? (raw.theme as Theme) : "yellow-on-black";
+  const storedTheme = validThemes.includes(raw.theme as Theme) ? (raw.theme as Theme) : "white-on-black";
+  const theme = storedTheme === "yellow-on-black" ? "white-on-black" : storedTheme;
 
   const s: Settings = {
     theme,
@@ -576,7 +577,7 @@ export function addSpeaker(name: string, color?: string, position?: SeatingPosit
       candidateId = `${baseId}_${counter++}`;
     }
     newId = candidateId;
-    const chosenColor = color || PALETTE[s.speakers.length % PALETTE.length] || "#ffd400";
+    const chosenColor = color || PALETTE[s.speakers.length % PALETTE.length] || "#4fc3f7";
     const newSpeaker: Speaker = {
       id: newId,
       name,

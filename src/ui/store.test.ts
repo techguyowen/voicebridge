@@ -1293,3 +1293,59 @@ describe("Device muting and removal controls", () => {
     expect(getState().utterances[1]!.text).toBe("I am back!");
   });
 });
+
+describe("default theme is white-on-black", () => {
+  function withMockStorage(json: string | null, fn: () => void): void {
+    const storage = new Map<string, string>();
+    if (json !== null) {
+      storage.set("alt.settings.v3", json);
+    }
+    const mockLocalStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, v),
+      removeItem: (k: string) => storage.delete(k),
+      clear: () => storage.clear(),
+      key: (i: number) => Array.from(storage.keys())[i] ?? null,
+      get length() {
+        return storage.size;
+      },
+    };
+    const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+    try {
+      fn();
+    } finally {
+      if (prevStorage !== undefined) {
+        (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+      } else {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      }
+    }
+  }
+
+  it("defaults getState().settings.theme to white-on-black", () => {
+    expect(getState().settings.theme).toBe("white-on-black");
+  });
+
+  it("loadSettings() with missing theme defaults to white-on-black", () => {
+    withMockStorage(JSON.stringify({ fontPx: 40 }), () => {
+      expect(loadSettings().theme).toBe("white-on-black");
+    });
+    withMockStorage(null, () => {
+      expect(loadSettings().theme).toBe("white-on-black");
+    });
+  });
+
+  it("loadSettings() migrates stored yellow-on-black to white-on-black", () => {
+    withMockStorage(JSON.stringify({ theme: "yellow-on-black" }), () => {
+      expect(loadSettings().theme).toBe("white-on-black");
+    });
+  });
+
+  it("first speaker auto-assigned color is sky blue, not yellow", () => {
+    const id = addSpeaker("Alice");
+    const sp = getState().speakers.find((s) => s.id === id);
+    expect(sp?.color).toBe("#4fc3f7");
+    expect(sp?.color).not.toBe("#ffd400");
+  });
+});

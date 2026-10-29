@@ -39,8 +39,8 @@ import {
 import { useWakeLock } from "./ui/wakeLock";
 
 const THEME_CYCLE: Theme[] = [
-  "yellow-on-black",
   "white-on-black",
+  "yellow-on-black",
   "amber-on-dark",
   "cyan-on-black",
   "black-on-white",
@@ -444,7 +444,7 @@ export default function App(): React.JSX.Element {
         e.preventDefault();
         const current = getState().settings.theme;
         const idx = THEME_CYCLE.indexOf(current);
-        const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "yellow-on-black";
+        const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "white-on-black";
         setTheme(next);
         return;
       }
@@ -574,7 +574,7 @@ export default function App(): React.JSX.Element {
 
         {!settings.showSpeakerLabels || settings.mode === "classroom" || settings.mode === "solo" ? (
           <div className={"speaker-pill " + (listening ? "is-listening" : "")} role="status" aria-label="Microphone audio">
-            <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, #ffd400)" }} aria-hidden="true" />
+            <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, var(--fg, #ffffff))" }} aria-hidden="true" />
             <span className="speaker-pill-name">
               {settings.deviceId === "disabled"
                 ? `🎙️ Local Mic Off • ${listening ? "Remote Phones Active" : "Ready"}`
@@ -592,7 +592,7 @@ export default function App(): React.JSX.Element {
           >
             {settings.deviceId === "disabled" && !activeSpeaker ? (
               <>
-                <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, #ffd400)" }} aria-hidden="true" />
+                <span className="speaker-pill-dot" style={{ backgroundColor: "var(--accent, var(--fg, #ffffff))" }} aria-hidden="true" />
                 <span className="speaker-pill-name">
                   🎙️ Local Mic Off • {listening ? "Remote Phones Active" : "Ready"}
                 </span>

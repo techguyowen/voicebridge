@@ -3,26 +3,6 @@
    High-contrast text is preserved per theme for low-vision readers. */
 
 :root,
-:root[data-theme="yellow-on-black"] {
-  --bg: #0a0b0e;
-  --bg-soft: #11141a;
-  --fg: #ffe066;
-  --muted: #a89c62;
-  --panel: rgba(255, 255, 255, 0.05);
-  --panel-solid: #141821;
-  --input-bg: rgba(255, 255, 255, 0.06);
-  --hairline: rgba(255, 255, 255, 0.12);
-  --border: #ffe066;
-  --btn-bg: rgba(255, 224, 102, 0.14);
-  --btn-fg: #ffe066;
-  --focus: #ffffff;
-  --danger: #ff7a7a;
-  --flash-glow: #ffe066;
-  --ok: #3ddc84;
-  --warn: #ffb74d;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-}
-
 :root[data-theme="white-on-black"] {
   --bg: #0a0b0e;
   --bg-soft: #11141a;
@@ -38,6 +18,26 @@
   --focus: #ffe066;
   --danger: #ff7a7a;
   --flash-glow: #ffffff;
+  --ok: #3ddc84;
+  --warn: #ffb74d;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="yellow-on-black"] {
+  --bg: #0a0b0e;
+  --bg-soft: #11141a;
+  --fg: #ffe066;
+  --muted: #a89c62;
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-solid: #141821;
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --hairline: rgba(255, 255, 255, 0.12);
+  --border: #ffe066;
+  --btn-bg: rgba(255, 224, 102, 0.14);
+  --btn-fg: #ffe066;
+  --focus: #ffffff;
+  --danger: #ff7a7a;
+  --flash-glow: #ffe066;
   --ok: #3ddc84;
   --warn: #ffb74d;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
