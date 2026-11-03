@@ -42,6 +42,7 @@ import {
   setShowOnGlassControls,
   setShowKeywordAlerts,
   setShowJumpToLive,
+  setShowExportShelf,
   useStore,
   type EngineChoice,
   type FlashIntensity,
@@ -680,6 +681,14 @@ export function SettingsDrawer({
                   onChange={(e) => setShowTableRadar(e.target.checked)}
                 />
                 <span><strong>Show Dinner Table Radar:</strong> Speaker direction bar in Dinner Table mode</span>
+              </label>
+              <label className="checkbox-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showExportShelf}
+                  onChange={(e) => setShowExportShelf(e.target.checked)}
+                />
+                <span><strong>Bottom Export Shelf:</strong> Show quick export and copy buttons docked below the screen</span>
               </label>
             </fieldset>
           </div>

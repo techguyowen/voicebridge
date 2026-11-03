@@ -58,6 +58,7 @@ export interface Settings {
   showOnGlassControls: boolean;
   showKeywordAlerts: boolean;
   showJumpToLive: boolean;
+  showExportShelf: boolean;
 }
 
 export interface StoreState {
@@ -143,6 +144,7 @@ const DEFAULT_SETTINGS: Settings = {
   showOnGlassControls: true,
   showKeywordAlerts: true,
   showJumpToLive: true,
+  showExportShelf: false,
 };
 
 export function clampFont(px: number): number {
@@ -230,6 +232,7 @@ export function loadSettings(): Settings {
     showOnGlassControls: raw.showOnGlassControls !== undefined ? Boolean(raw.showOnGlassControls) : true,
     showKeywordAlerts: raw.showKeywordAlerts !== undefined ? Boolean(raw.showKeywordAlerts) : true,
     showJumpToLive: raw.showJumpToLive !== undefined ? Boolean(raw.showJumpToLive) : true,
+    showExportShelf: raw.showExportShelf !== undefined ? Boolean(raw.showExportShelf) : false,
   };
 
   if (typeof window !== "undefined") {
@@ -545,6 +548,10 @@ export function setShowKeywordAlerts(showKeywordAlerts: boolean): void {
 
 export function setShowJumpToLive(showJumpToLive: boolean): void {
   update((s) => ({ ...s, settings: { ...s.settings, showJumpToLive } }));
+}
+
+export function setShowExportShelf(showExportShelf: boolean): void {
+  update((s) => ({ ...s, settings: { ...s.settings, showExportShelf } }));
 }
 
 export function relabel(ids: string[], speakerId: SpeakerId): void {

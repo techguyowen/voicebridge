@@ -818,7 +818,7 @@ export default function App(): React.JSX.Element {
         )}
       </footer>
 
-      {utterances.length > 0 && settings.mode !== "diagnostics" && (
+      {settings.showExportShelf && utterances.length > 0 && settings.mode !== "diagnostics" && (
         <div className="export-shelf">
           <ExportButtons />
         </div>

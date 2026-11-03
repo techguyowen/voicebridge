@@ -46,6 +46,7 @@ import {
   setReadingRuler,
   setRogerDisconnected,
   setShowJumpToLive,
+  setShowExportShelf,
   setShowKeywordAlerts,
   setShowOnGlassControls,
   setShowQuickReply,
@@ -818,6 +819,18 @@ describe("feature toggle settings", () => {
     expect(getState().settings.showJumpToLive).toBe(true);
   });
 
+  it("showExportShelf defaults to false to maximize live caption screen room", () => {
+    expect(getState().settings.showExportShelf).toBe(false);
+  });
+
+  it("setShowExportShelf updates settings and persists properly", () => {
+    expect(getState().settings.showExportShelf).toBe(false);
+    setShowExportShelf(true);
+    expect(getState().settings.showExportShelf).toBe(true);
+    setShowExportShelf(false);
+    expect(getState().settings.showExportShelf).toBe(false);
+  });
+
   it("loadSettings parses feature toggles and defaults missing values to true", () => {
     const storage = new Map<string, string>();
     storage.set(
@@ -854,6 +867,34 @@ describe("feature toggle settings", () => {
       expect(loaded.showOnGlassControls).toBe(false);
       expect(loaded.showKeywordAlerts).toBe(false);
       expect(loaded.showJumpToLive).toBe(false);
+      expect(loaded.showExportShelf).toBe(false);
+    } finally {
+      if (prevStorage !== undefined) {
+        (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+      } else {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      }
+    }
+  });
+
+  it("loadSettings parses showExportShelf: true from localStorage", () => {
+    const storage = new Map<string, string>();
+    storage.set("alt.settings.v3", JSON.stringify({ showExportShelf: true }));
+    const mockLocalStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, v),
+      removeItem: (k: string) => storage.delete(k),
+      clear: () => storage.clear(),
+      key: (i: number) => Array.from(storage.keys())[i] ?? null,
+      get length() {
+        return storage.size;
+      },
+    };
+    const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+    try {
+      const loaded = loadSettings();
+      expect(loaded.showExportShelf).toBe(true);
     } finally {
       if (prevStorage !== undefined) {
         (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;

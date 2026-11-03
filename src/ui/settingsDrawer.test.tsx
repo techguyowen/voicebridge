@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SettingsDrawer, type SettingsTab } from "./SettingsDrawer";
-import { resetStore } from "./store";
+import { getState, resetStore, setShowExportShelf } from "./store";
 
 describe("SettingsDrawer Themes Tab", () => {
   beforeEach(() => {
@@ -101,3 +101,90 @@ describe("SettingsDrawer Themes Tab", () => {
     expect(html).toContain("Launch from home screen to hide Safari navigation bars");
   });
 });
+
+describe("SettingsDrawer Features Tab", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it("renders the Features navigation tab and Bottom Export Shelf toggle", () => {
+    const html = renderToStaticMarkup(
+      <SettingsDrawer initialTab="features" onClose={() => {}} onOpenQr={() => {}} />
+    );
+
+    expect(html).toContain("🎛 Features");
+    expect(html).toContain("Feature Toggles &amp; Distraction-Free Mode");
+    expect(html).toContain("Bottom Export Shelf:");
+    expect(html).toContain("Show quick export and copy buttons docked below the screen");
+  });
+
+  it("clicking the Bottom Export Shelf toggle calls setShowExportShelf and updates store", () => {
+    expect(getState().settings.showExportShelf).toBe(false);
+
+    let capturedTree: any = null;
+    function Spy() {
+      capturedTree = SettingsDrawer({
+        initialTab: "features",
+        onClose: () => {},
+        onOpenQr: () => {},
+      });
+      return null;
+    }
+    renderToStaticMarkup(<Spy />);
+
+    function findElement(node: any, predicate: (n: any) => boolean): any {
+      if (!node) return null;
+      if (predicate(node)) return node;
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          const found = findElement(child, predicate);
+          if (found) return found;
+        }
+      } else if (node.props?.children) {
+        return findElement(node.props.children, predicate);
+      }
+      return null;
+    }
+
+    const shelfLabel = findElement(capturedTree, (n: any) => {
+      return (
+        n?.type === "label" &&
+        JSON.stringify(n?.props?.children ?? "").includes("Bottom Export Shelf:")
+      );
+    });
+    expect(shelfLabel).not.toBeNull();
+
+    const checkbox = findElement(shelfLabel, (n: any) => n?.type === "input" && n?.props?.type === "checkbox");
+    expect(checkbox).not.toBeNull();
+    expect(checkbox.props.checked).toBe(false);
+
+    // Simulate clicking / checking the input
+    checkbox.props.onChange({ target: { checked: true } });
+    expect(getState().settings.showExportShelf).toBe(true);
+
+    // Re-render and verify checked prop
+    renderToStaticMarkup(<Spy />);
+    const updatedShelfLabel = findElement(capturedTree, (n: any) => {
+      return (
+        n?.type === "label" &&
+        JSON.stringify(n?.props?.children ?? "").includes("Bottom Export Shelf:")
+      );
+    });
+    const updatedCheckbox = findElement(updatedShelfLabel, (n: any) => n?.type === "input" && n?.props?.type === "checkbox");
+    expect(updatedCheckbox.props.checked).toBe(true);
+
+    // Simulate unchecking
+    updatedCheckbox.props.onChange({ target: { checked: false } });
+    expect(getState().settings.showExportShelf).toBe(false);
+  });
+
+  it("reflects changes when setShowExportShelf is invoked", () => {
+    setShowExportShelf(true);
+    const html = renderToStaticMarkup(
+      <SettingsDrawer initialTab="features" onClose={() => {}} onOpenQr={() => {}} />
+    );
+    expect(html).toContain("Bottom Export Shelf:");
+    expect(getState().settings.showExportShelf).toBe(true);
+  });
+});
+
