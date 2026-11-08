@@ -43,6 +43,7 @@ import {
   setShowKeywordAlerts,
   setShowJumpToLive,
   setShowExportShelf,
+  setShowGazeHud,
   useStore,
   type EngineChoice,
   type FlashIntensity,
@@ -618,6 +619,14 @@ export function SettingsDrawer({
               <p style={{ margin: "0 0 12px", fontSize: "15px", color: "var(--muted)" }}>
                 Turn off auxiliary controls and buttons to give the student a clean, minimal reading view.
               </p>
+              <label className="checkbox-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showGazeHud}
+                  onChange={(e) => setShowGazeHud(e.target.checked)}
+                />
+                <span><strong>Peripheral Gaze HUD:</strong> High-contrast edge beacon pointing toward active speaker</span>
+              </label>
               <label className="checkbox-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 0" }}>
                 <input
                   type="checkbox"

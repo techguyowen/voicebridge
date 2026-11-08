@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { AudioLevel, EngineStatus, Speaker, SpeakerId, Utterance } from "../types";
+import type { AudioLevel, EngineStatus, SeatingPosition, Speaker, SpeakerId, Utterance } from "../types";
 import { getHostSync } from "../engines/multiDeviceSync";
 
 export type Theme = "yellow-on-black" | "white-on-black" | "black-on-white" | "cyan-on-black" | "amber-on-dark" | "custom";
@@ -11,7 +11,7 @@ export type FlashIntensity = "subtle" | "medium" | "vivid";
 export type FlashMode = "border" | "screen" | "banner" | "off";
 export type FontWeight = "normal" | "bold" | "extra-bold" | "black";
 export type LetterSpacing = "normal" | "wide" | "extra-wide";
-export type SeatingPosition = "left" | "across" | "right" | "near" | "none";
+export type { SeatingPosition } from "../types";
 
 export interface CustomColors {
   bg: string;
@@ -59,6 +59,7 @@ export interface Settings {
   showKeywordAlerts: boolean;
   showJumpToLive: boolean;
   showExportShelf: boolean;
+  showGazeHud: boolean;
 }
 
 export interface StoreState {
@@ -145,6 +146,7 @@ const DEFAULT_SETTINGS: Settings = {
   showKeywordAlerts: true,
   showJumpToLive: true,
   showExportShelf: false,
+  showGazeHud: true,
 };
 
 export function clampFont(px: number): number {
@@ -233,6 +235,7 @@ export function loadSettings(): Settings {
     showKeywordAlerts: raw.showKeywordAlerts !== undefined ? Boolean(raw.showKeywordAlerts) : true,
     showJumpToLive: raw.showJumpToLive !== undefined ? Boolean(raw.showJumpToLive) : true,
     showExportShelf: raw.showExportShelf !== undefined ? Boolean(raw.showExportShelf) : false,
+    showGazeHud: raw.showGazeHud !== undefined ? Boolean(raw.showGazeHud) : true,
   };
 
   if (typeof window !== "undefined") {
@@ -552,6 +555,10 @@ export function setShowJumpToLive(showJumpToLive: boolean): void {
 
 export function setShowExportShelf(showExportShelf: boolean): void {
   update((s) => ({ ...s, settings: { ...s.settings, showExportShelf } }));
+}
+
+export function setShowGazeHud(showGazeHud: boolean): void {
+  update((s) => ({ ...s, settings: { ...s.settings, showGazeHud } }));
 }
 
 export function relabel(ids: string[], speakerId: SpeakerId): void {

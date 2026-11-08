@@ -1,10 +1,12 @@
 export type SpeakerId = string;
 
+export type SeatingPosition = "left" | "across" | "right" | "near" | "none";
+
 export interface Speaker {
   id: SpeakerId;
   name: string;
   color: string;
-  position?: "left" | "across" | "right" | "near" | "none";
+  position?: SeatingPosition;
 }
 
 export interface Utterance {
@@ -22,6 +24,7 @@ export interface SyncMessage {
   room: string;
   senderName: string;
   senderColor?: string;
+  senderPosition?: SeatingPosition;
   pin?: string;
   targetId?: string; // target speaker ID or name
   utterance?: Utterance;

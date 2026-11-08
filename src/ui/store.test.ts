@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Utterance } from "../types";
 import { toHtml, toMarkdown } from "./ExportButtons";
 import { groupUtterancesByTurn, highlightAlertWords } from "./TranscriptList";
-import { VoxStreamDisplay } from "./VoxStreamDisplay";
+import { VoxStreamDisplay, splitActiveWords } from "./VoxStreamDisplay";
 import {
   addOrUpdateUtterance,
   addSpeaker,
@@ -47,6 +47,7 @@ import {
   setRogerDisconnected,
   setShowJumpToLive,
   setShowExportShelf,
+  setShowGazeHud,
   setShowKeywordAlerts,
   setShowOnGlassControls,
   setShowQuickReply,
@@ -831,6 +832,18 @@ describe("feature toggle settings", () => {
     expect(getState().settings.showExportShelf).toBe(false);
   });
 
+  it("showGazeHud defaults to true", () => {
+    expect(getState().settings.showGazeHud).toBe(true);
+  });
+
+  it("setShowGazeHud updates settings and persists properly", () => {
+    expect(getState().settings.showGazeHud).toBe(true);
+    setShowGazeHud(false);
+    expect(getState().settings.showGazeHud).toBe(false);
+    setShowGazeHud(true);
+    expect(getState().settings.showGazeHud).toBe(true);
+  });
+
   it("loadSettings parses feature toggles and defaults missing values to true", () => {
     const storage = new Map<string, string>();
     storage.set(
@@ -868,6 +881,36 @@ describe("feature toggle settings", () => {
       expect(loaded.showKeywordAlerts).toBe(false);
       expect(loaded.showJumpToLive).toBe(false);
       expect(loaded.showExportShelf).toBe(false);
+      expect(loaded.showGazeHud).toBe(true); // defaults to true when missing
+    } finally {
+      if (prevStorage !== undefined) {
+        (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+      } else {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      }
+    }
+  });
+
+  it("loadSettings parses showGazeHud: false from localStorage", () => {
+    const storage = new Map<string, string>();
+    storage.set("alt.settings.v3", JSON.stringify({ showGazeHud: false }));
+    const mockLocalStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, v),
+      removeItem: (k: string) => storage.delete(k),
+      clear: () => storage.clear(),
+      key: (i: number) => Array.from(storage.keys())[i] ?? null,
+      get length() {
+        return storage.size;
+      },
+    };
+
+    const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+
+    try {
+      const loaded = loadSettings();
+      expect(loaded.showGazeHud).toBe(false);
     } finally {
       if (prevStorage !== undefined) {
         (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
@@ -1170,6 +1213,31 @@ describe("VoxStreamDisplay with connected phone speech", () => {
     expect(html).toContain("Pass the cranberry sauce please");
     expect(html).toContain("caption-sentence interim");
     expect(html).toContain("interim-cursor");
+    expect(html).toContain("active-word-highlight karaoke-active");
+    expect(html).toContain("cranberry sauce please");
+    expect(html).toContain("vox-line-stabilizer line-stabilized-container");
+  });
+
+  it("splitActiveWords correctly partitions latest 2-3 words for active spotlight", () => {
+    // 5 words -> split last 3
+    const res1 = splitActiveWords("one two three four five", 3);
+    expect(res1.head).toBe("one two ");
+    expect(res1.tail).toBe("three four five");
+
+    // <= 3 words -> whole text is tail
+    const res2 = splitActiveWords("hello world", 3);
+    expect(res2.head).toBe("");
+    expect(res2.tail).toBe("hello world");
+
+    // Single word
+    const res3 = splitActiveWords("listening...", 3);
+    expect(res3.head).toBe("");
+    expect(res3.tail).toBe("listening...");
+
+    // Empty / whitespace
+    const res4 = splitActiveWords("   ", 3);
+    expect(res4.head).toBe("   ");
+    expect(res4.tail).toBe("");
   });
 
   it("finalizes phone interim turn cleanly when final packet arrives with identical turn id", () => {

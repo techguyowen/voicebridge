@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SettingsDrawer, type SettingsTab } from "./SettingsDrawer";
-import { getState, resetStore, setShowExportShelf } from "./store";
+import { getState, resetStore, setShowExportShelf, setShowGazeHud } from "./store";
 
 describe("SettingsDrawer Themes Tab", () => {
   beforeEach(() => {
@@ -186,5 +186,68 @@ describe("SettingsDrawer Features Tab", () => {
     expect(html).toContain("Bottom Export Shelf:");
     expect(getState().settings.showExportShelf).toBe(true);
   });
+
+  it("renders the Peripheral Gaze HUD toggle and toggles via setShowGazeHud", () => {
+    expect(getState().settings.showGazeHud).toBe(true);
+
+    const html = renderToStaticMarkup(
+      <SettingsDrawer initialTab="features" onClose={() => {}} onOpenQr={() => {}} />
+    );
+    expect(html).toContain("Peripheral Gaze HUD:");
+    expect(html).toContain("High-contrast edge beacon pointing toward active speaker");
+
+    let capturedTree: any = null;
+    function Spy() {
+      capturedTree = SettingsDrawer({
+        initialTab: "features",
+        onClose: () => {},
+        onOpenQr: () => {},
+      });
+      return null;
+    }
+    renderToStaticMarkup(<Spy />);
+
+    function findElement(node: any, predicate: (n: any) => boolean): any {
+      if (!node) return null;
+      if (predicate(node)) return node;
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          const found = findElement(child, predicate);
+          if (found) return found;
+        }
+      } else if (node.props?.children) {
+        return findElement(node.props.children, predicate);
+      }
+      return null;
+    }
+
+    const hudLabel = findElement(capturedTree, (n: any) => {
+      return (
+        n?.type === "label" &&
+        JSON.stringify(n?.props?.children ?? "").includes("Peripheral Gaze HUD:")
+      );
+    });
+    expect(hudLabel).not.toBeNull();
+
+    const checkbox = findElement(hudLabel, (n: any) => n?.type === "input" && n?.props?.type === "checkbox");
+    expect(checkbox).not.toBeNull();
+    expect(checkbox.props.checked).toBe(true);
+
+    // Toggle off
+    checkbox.props.onChange({ target: { checked: false } });
+    expect(getState().settings.showGazeHud).toBe(false);
+
+    // Toggle back on
+    checkbox.props.onChange({ target: { checked: true } });
+    expect(getState().settings.showGazeHud).toBe(true);
+  });
+
+  it("reflects changes when setShowGazeHud is invoked directly", () => {
+    setShowGazeHud(false);
+    expect(getState().settings.showGazeHud).toBe(false);
+    setShowGazeHud(true);
+    expect(getState().settings.showGazeHud).toBe(true);
+  });
 });
+
 

@@ -11,6 +11,7 @@ import { SpotlightBanner } from "./ui/SpotlightBanner";
 import { TableRadar, arrowForSpeaker } from "./ui/TableRadar";
 import { TranscriptList } from "./ui/TranscriptList";
 import { VoxStreamDisplay } from "./ui/VoxStreamDisplay";
+import { GazeHud } from "./ui/GazeHud";
 import { TutorialModal } from "./ui/TutorialModal";
 import { TodGuideModal } from "./ui/TodGuideModal";
 import { copyNotesToClipboard, downloadTranscript } from "./ui/export";
@@ -234,7 +235,7 @@ export default function App(): React.JSX.Element {
           id: speakerId,
           name: speakerName,
           color: msg.senderColor || "#4fc3f7",
-          position: "none",
+          position: msg.senderPosition || "none",
         });
       }
 
@@ -507,6 +508,7 @@ export default function App(): React.JSX.Element {
   if (settings.zenMode) {
     return (
       <div className={`app zen-mode-active ${flashClass}`}>
+        <GazeHud />
         <div className="visually-hidden" aria-live="polite" role="status">
           {liveMessage}
         </div>
@@ -549,6 +551,7 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className={`app ${flashClass}`}>
+      <GazeHud />
       <div className="visually-hidden" aria-live="polite" role="status">
         {liveMessage}
       </div>

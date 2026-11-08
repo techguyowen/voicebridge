@@ -13,6 +13,45 @@ import {
   useStore,
 } from "./store";
 
+export function splitActiveWords(text: string, count = 3): { head: string; tail: string } {
+  const trimmed = text.trimEnd();
+  if (!trimmed) return { head: text, tail: "" };
+
+  const matches = [...trimmed.matchAll(/\S+/g)];
+  if (matches.length <= count) {
+    return { head: "", tail: text };
+  }
+
+  const targetMatch = matches[matches.length - count];
+  const splitIndex = targetMatch.index ?? 0;
+
+  return {
+    head: text.slice(0, splitIndex),
+    tail: text.slice(splitIndex),
+  };
+}
+
+function renderSentenceContent(
+  text: string,
+  isActive: boolean,
+  alertWords: string,
+  bionic: boolean
+): React.JSX.Element {
+  if (!isActive || !text.trim()) {
+    return highlightAlertWords(text, alertWords, bionic);
+  }
+
+  const { head, tail } = splitActiveWords(text, 3);
+  return (
+    <>
+      {head ? highlightAlertWords(head, alertWords, bionic) : null}
+      <span className="active-word-highlight karaoke-active">
+        {highlightAlertWords(tail, alertWords, bionic)}
+      </span>
+    </>
+  );
+}
+
 export function VoxStreamDisplay(): React.JSX.Element {
   const { utterances, settings, speakers, audioLevel, listening, rogerDisconnected } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -273,53 +312,58 @@ export function VoxStreamDisplay(): React.JSX.Element {
               : undefined;
 
           return (
-            <div key={u.id} className={classNames} data-utterance-id={u.id}>
-              {settings.showStarButtons !== false && (
-                <button
-                  type="button"
-                  className={"sentence-star-btn " + (u.starred ? "starred" : "")}
-                  onClick={() => toggleStarUtterance(u.id)}
-                  title={u.starred ? "Starred note (click to unstar)" : "Star this sentence for class notes"}
-                  aria-label={u.starred ? "Unstar sentence" : "Star sentence"}
-                >
-                  {u.starred ? "★" : "☆"}
-                </button>
-              )}
-              {speaker && (
-                <span className="sentence-speaker-label" style={{ color: speaker.color }}>
-                  {speaker.name}:{" "}
-                </span>
-              )}
-              {highlightAlertWords(u.text, settings.alertWords, settings.bionicReading)}
+            <div key={u.id} className="vox-line-stabilizer line-stabilized-container">
+              <div className={classNames} data-utterance-id={u.id} data-text={u.text}>
+                {settings.showStarButtons !== false && (
+                  <button
+                    type="button"
+                    className={"sentence-star-btn " + (u.starred ? "starred" : "")}
+                    onClick={() => toggleStarUtterance(u.id)}
+                    title={u.starred ? "Starred note (click to unstar)" : "Star this sentence for class notes"}
+                    aria-label={u.starred ? "Unstar sentence" : "Star sentence"}
+                  >
+                    {u.starred ? "★" : "☆"}
+                  </button>
+                )}
+                {speaker && (
+                  <span className="sentence-speaker-label" style={{ color: speaker.color }}>
+                    {speaker.name}:{" "}
+                  </span>
+                )}
+                {renderSentenceContent(u.text, isActive, settings.alertWords, settings.bionicReading)}
+              </div>
             </div>
           );
         })}
 
         {hasInterim && interimUtterance && (
-          <div
-            key={interimUtterance.id}
-            className={`caption-sentence interim ${settings.readingRuler ? "reading-ruler-spotlight" : ""}`}
-            data-utterance-id={interimUtterance.id}
-          >
-            {settings.showSpeakerLabels && interimUtterance.speakerId && (
-              <span
-                className="sentence-speaker-label"
-                style={{
-                  color:
-                    speakers.find((s) => s.id === interimUtterance.speakerId)?.color ?? "inherit",
-                }}
-              >
-                {speakers.find((s) => s.id === interimUtterance.speakerId)?.name ?? "Speaker"}:{" "}
+          <div key={interimUtterance.id} className="vox-line-stabilizer line-stabilized-container">
+            <div
+              className={`caption-sentence interim ${settings.readingRuler ? "reading-ruler-spotlight" : ""}`}
+              data-utterance-id={interimUtterance.id}
+              data-text={interimUtterance.text}
+            >
+              {settings.showSpeakerLabels && interimUtterance.speakerId && (
+                <span
+                  className="sentence-speaker-label"
+                  style={{
+                    color:
+                      speakers.find((s) => s.id === interimUtterance.speakerId)?.color ?? "inherit",
+                  }}
+                >
+                  {speakers.find((s) => s.id === interimUtterance.speakerId)?.name ?? "Speaker"}:{" "}
+                </span>
+              )}
+              {renderSentenceContent(
+                interimUtterance.text,
+                true,
+                settings.alertWords,
+                settings.bionicReading
+              )}
+              <span className="interim-cursor" aria-hidden="true">
+                ▍
               </span>
-            )}
-            {highlightAlertWords(
-              interimUtterance.text,
-              settings.alertWords,
-              settings.bionicReading
-            )}
-            <span className="interim-cursor" aria-hidden="true">
-              ▍
-            </span>
+            </div>
           </div>
         )}
       </div>

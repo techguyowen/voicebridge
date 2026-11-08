@@ -1,16 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 import { MultiDeviceSync } from "../engines/multiDeviceSync";
+import type { SeatingPosition } from "../types";
 
 export type MicMode = "latch" | "ptt" | "temp-mute";
 
+function getStored(key: string, fallback: string): string {
+  try {
+    if (typeof localStorage !== "undefined") {
+      return localStorage.getItem(key) || fallback;
+    }
+  } catch {}
+  return fallback;
+}
+
+function setStored(key: string, value: string): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(key, value);
+    }
+  } catch {}
+}
+
 export function PhoneTransmitter(): React.JSX.Element {
-  const urlParams = new URLSearchParams(window.location.search);
-  const room = urlParams.get("room") || localStorage.getItem("alt.phone.room") || "TABLE-101";
-  const [pin, setPin] = useState(() => urlParams.get("pin") || localStorage.getItem("alt.phone.pin") || "");
-  const [name, setName] = useState(() => localStorage.getItem("alt.phone.name") || "Family Member");
-  const [color, setColor] = useState(() => localStorage.getItem("alt.phone.color") || "#4fc3f7");
+  const urlSearch = typeof window !== "undefined" ? window.location.search : "";
+  const urlParams = new URLSearchParams(urlSearch);
+  const room = urlParams.get("room") || getStored("alt.phone.room", "TABLE-101");
+  const [pin, setPin] = useState(() => urlParams.get("pin") || getStored("alt.phone.pin", ""));
+  const [name, setName] = useState(() => getStored("alt.phone.name", "Family Member"));
+  const [color, setColor] = useState(() => getStored("alt.phone.color", "#4fc3f7"));
+  const [position, setPosition] = useState<SeatingPosition>(() => {
+    const saved = getStored("alt.phone.position", "across");
+    return saved === "left" || saved === "across" || saved === "right" || saved === "near" ? saved : "across";
+  });
+  const [audioLevel, setAudioLevel] = useState(0);
   const [micMode, setMicMode] = useState<MicMode>(() => {
-    const saved = localStorage.getItem("alt.phone.micMode");
+    const saved = getStored("alt.phone.micMode", "latch");
     return saved === "ptt" || saved === "temp-mute" || saved === "latch" ? saved : "latch";
   });
 
@@ -29,12 +53,91 @@ export function PhoneTransmitter(): React.JSX.Element {
   const micModeRef = useRef(micMode);
   const micActiveRef = useRef(micActive);
   const nameRef = useRef(name);
+  const positionRef = useRef(position);
   const isHostMutedRef = useRef(isHostMuted);
 
   // Turn management: Maintain a single stable ID for active speaking turn
   const currentTurnIdRef = useRef<string | null>(null);
   const turnStartMsRef = useRef<number>(Date.now());
   const lastSpokenTextRef = useRef<string>("");
+
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  // Web Audio VU Meter: Capture RMS energy (0-100) when micActive
+  useEffect(() => {
+    if (!micActive) {
+      setAudioLevel(0);
+      return;
+    }
+
+    let audioCtx: AudioContext | null = null;
+    let stream: MediaStream | null = null;
+    let animId: number | null = null;
+    let cancelled = false;
+
+    const initAudio = async () => {
+      try {
+        if (typeof window === "undefined") return;
+        const AudioCtxClass =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtxClass) return;
+
+        if (!navigator.mediaDevices?.getUserMedia) return;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        audioCtx = new AudioCtxClass();
+        if (audioCtx.state === "suspended") {
+          await audioCtx.resume();
+        }
+
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.4;
+        source.connect(analyser);
+
+        const buffer = new Uint8Array(analyser.frequencyBinCount);
+        const updateMeter = () => {
+          if (cancelled) return;
+          analyser.getByteTimeDomainData(buffer);
+          let sum = 0;
+          for (let i = 0; i < buffer.length; i++) {
+            const v = (buffer[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / buffer.length);
+          const scaled = Math.min(100, Math.round(rms * 280));
+          setAudioLevel(scaled);
+          animId = requestAnimationFrame(updateMeter);
+        };
+
+        animId = requestAnimationFrame(updateMeter);
+      } catch {
+        // Fallback silently if getUserMedia or AudioContext fails in environment
+      }
+    };
+
+    void initAudio();
+
+    return () => {
+      cancelled = true;
+      if (animId) cancelAnimationFrame(animId);
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      if (audioCtx) {
+        void audioCtx.close().catch(() => {});
+      }
+      setAudioLevel(0);
+    };
+  }, [micActive]);
 
   useEffect(() => {
     isTransmittingRef.current = isTransmitting;
@@ -54,7 +157,7 @@ export function PhoneTransmitter(): React.JSX.Element {
 
   useEffect(() => {
     pinRef.current = pin;
-    if (pin) localStorage.setItem("alt.phone.pin", pin);
+    if (pin) setStored("alt.phone.pin", pin);
   }, [pin]);
 
   const finalizeActiveTurn = () => {
@@ -68,6 +171,7 @@ export function PhoneTransmitter(): React.JSX.Element {
         type: "utterance",
         senderName: name,
         senderColor: color,
+        senderPosition: positionRef.current,
         pin: pinRef.current,
         utterance: {
           id: turnId,
@@ -85,7 +189,7 @@ export function PhoneTransmitter(): React.JSX.Element {
 
   useEffect(() => {
     micModeRef.current = micMode;
-    localStorage.setItem("alt.phone.micMode", micMode);
+    setStored("alt.phone.micMode", micMode);
     // Adjust transmission default when mode changes
     if (micActive) {
       if (micMode === "ptt") {
@@ -134,6 +238,7 @@ export function PhoneTransmitter(): React.JSX.Element {
       type: "join",
       senderName: name,
       senderColor: color,
+      senderPosition: positionRef.current,
       pin: activePin,
     });
 
@@ -142,6 +247,7 @@ export function PhoneTransmitter(): React.JSX.Element {
       sync.send({
         type: "leave",
         senderName: name,
+        senderPosition: positionRef.current,
         pin: activePin,
       });
       sync.destroy();
@@ -167,7 +273,7 @@ export function PhoneTransmitter(): React.JSX.Element {
       currentPin = entered.trim();
       setPin(currentPin);
       pinRef.current = currentPin;
-      localStorage.setItem("alt.phone.pin", currentPin);
+      setStored("alt.phone.pin", currentPin);
     }
     setErrorMessage("");
     return currentPin;
@@ -232,6 +338,7 @@ export function PhoneTransmitter(): React.JSX.Element {
               type: "utterance",
               senderName: name,
               senderColor: color,
+              senderPosition: positionRef.current,
               pin: pinRef.current,
               utterance: {
                 id: turnId,
@@ -293,6 +400,20 @@ export function PhoneTransmitter(): React.JSX.Element {
   const stopMicRef = useRef(stopMic);
   stopMicRef.current = stopMic;
 
+  const handlePositionChange = (newPos: SeatingPosition) => {
+    setPosition(newPos);
+    positionRef.current = newPos;
+    setStored("alt.phone.position", newPos);
+    vibrate(30);
+    syncRef.current?.send({
+      type: "join",
+      senderName: nameRef.current,
+      senderColor: color,
+      senderPosition: newPos,
+      pin: pinRef.current.trim(),
+    });
+  };
+
   const handleReconnect = () => {
     setIsKicked(false);
     setIsHostMuted(false);
@@ -300,6 +421,7 @@ export function PhoneTransmitter(): React.JSX.Element {
       type: "join",
       senderName: name,
       senderColor: color,
+      senderPosition: positionRef.current,
       pin: pinRef.current.trim(),
     });
     startMic();
@@ -363,18 +485,18 @@ export function PhoneTransmitter(): React.JSX.Element {
 
   const handleNameChange = (newName: string) => {
     setName(newName);
-    localStorage.setItem("alt.phone.name", newName);
+    setStored("alt.phone.name", newName);
   };
 
   const handleColorChange = (newColor: string) => {
     setColor(newColor);
-    localStorage.setItem("alt.phone.color", newColor);
+    setStored("alt.phone.color", newColor);
   };
 
   const handlePinChange = (newPin: string) => {
     setPin(newPin);
     pinRef.current = newPin;
-    localStorage.setItem("alt.phone.pin", newPin);
+    setStored("alt.phone.pin", newPin);
   };
 
   return (
@@ -448,6 +570,41 @@ export function PhoneTransmitter(): React.JSX.Element {
         </div>
       )}
 
+      {/* 1-Tap Seating Position Selector */}
+      <div className="seating-picker-container" style={{ margin: "16px 0" }}>
+        <div style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "8px" }}>
+          Your Seating Position (relative to tablet):
+        </div>
+        <div
+          className="seating-picker"
+          role="radiogroup"
+          aria-label="Your Seating Position (relative to tablet)"
+        >
+          {(
+            [
+              { id: "left", label: "← Left" },
+              { id: "across", label: "↑ Across" },
+              { id: "right", label: "→ Right" },
+              { id: "near", label: "↓ Near" },
+            ] as const
+          ).map((opt) => {
+            const active = position === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`seating-btn ${active ? "active" : ""}`}
+                onClick={() => handlePositionChange(opt.id)}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Mic Mode Selector */}
       <div style={{ margin: "16px 0" }}>
         <div style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "8px" }}>Microphone Control Mode:</div>
@@ -508,6 +665,31 @@ export function PhoneTransmitter(): React.JSX.Element {
 
       {/* Main Big Mic Control Button */}
       <div style={{ textAlign: "center", margin: "24px 0" }}>
+        {/* Live Audio VU Meter */}
+        {micActive && (
+          <div
+            className="phone-vu-meter"
+            role="meter"
+            aria-valuenow={audioLevel}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Microphone Audio Level"
+          >
+            <div className="phone-vu-header">
+              <span className={`phone-vu-label ${audioLevel > 15 ? "active" : ""}`}>
+                {audioLevel > 15 ? "🔊 Hearing Speech!" : "🎙️ Listening & Ready"}
+              </span>
+              <span className="phone-vu-value">{audioLevel}%</span>
+            </div>
+            <div className="phone-vu-track">
+              <div
+                className={`phone-vu-bar ${audioLevel > 15 ? "phone-vu-live" : ""}`}
+                style={{ width: `${Math.max(4, audioLevel)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {!micActive ? (
           <button
             type="button"
