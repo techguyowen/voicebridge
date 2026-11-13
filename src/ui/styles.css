@@ -15,6 +15,7 @@
   --border: #ffffff;
   --btn-bg: rgba(255, 255, 255, 0.12);
   --btn-fg: #ffffff;
+  --accent: #4fc3f7;
   --focus: #ffe066;
   --danger: #ff7a7a;
   --flash-glow: #ffffff;
@@ -35,6 +36,7 @@
   --border: #ffe066;
   --btn-bg: rgba(255, 224, 102, 0.14);
   --btn-fg: #ffe066;
+  --accent: #ffe066;
   --focus: #ffffff;
   --danger: #ff7a7a;
   --flash-glow: #ffe066;
@@ -55,6 +57,7 @@
   --border: #141414;
   --btn-bg: rgba(20, 20, 20, 0.08);
   --btn-fg: #141414;
+  --accent: #005fcc;
   --focus: #005fcc;
   --danger: #c62828;
   --flash-glow: #005fcc;
@@ -75,6 +78,7 @@
   --border: #38d9a9;
   --btn-bg: rgba(56, 217, 169, 0.14);
   --btn-fg: #38d9a9;
+  --accent: #38d9a9;
   --focus: #ffffff;
   --danger: #ff7a7a;
   --flash-glow: #38d9a9;
@@ -95,6 +99,7 @@
   --border: #ffb74d;
   --btn-bg: rgba(255, 183, 77, 0.14);
   --btn-fg: #ffb74d;
+  --accent: #ffb74d;
   --focus: #ffffff;
   --danger: #ff7a7a;
   --flash-glow: #ffb74d;
@@ -2343,8 +2348,8 @@ button.danger {
   background: rgba(18, 18, 18, 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 2px solid var(--border, #ffd400);
-  box-shadow: 0 0 24px var(--speaker-accent, rgba(255, 212, 0, 0.45));
+  border: 2px solid var(--border, var(--accent, #4fc3f7));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--speaker-accent, var(--accent, #4fc3f7)) 45%, transparent);
   color: var(--fg, #ffffff);
   font-weight: 700;
   border-radius: 9999px;
@@ -2358,48 +2363,54 @@ button.danger {
 @keyframes gazeHudPulse {
   0% {
     transform: translate(var(--hud-tx, 0), var(--hud-ty, 0)) scale(1);
-    box-shadow: 0 0 16px var(--speaker-accent, rgba(255, 212, 0, 0.35));
+    box-shadow: 0 0 16px color-mix(in srgb, var(--speaker-accent, var(--accent, #4fc3f7)) 35%, transparent);
   }
   100% {
     transform: translate(var(--hud-tx, 0), var(--hud-ty, 0)) scale(1.04);
-    box-shadow: 0 0 32px var(--speaker-accent, rgba(255, 212, 0, 0.7));
+    box-shadow: 0 0 32px color-mix(in srgb, var(--speaker-accent, var(--accent, #4fc3f7)) 70%, transparent);
   }
 }
 
 .gaze-hud-left {
-  left: 12px;
+  left: 8px;
   top: 50%;
+  opacity: 0.92;
+  padding: 8px 12px;
+  font-size: 15px;
   --hud-tx: 0;
   --hud-ty: -50%;
   transform: translate(0, -50%);
-  border-left: 6px solid var(--speaker-accent, #ffd400);
+  border-left: 6px solid var(--speaker-accent, var(--accent, #4fc3f7));
 }
 
 .gaze-hud-right {
-  right: 12px;
+  right: 8px;
   top: 50%;
+  opacity: 0.92;
+  padding: 8px 12px;
+  font-size: 15px;
   --hud-tx: 0;
   --hud-ty: -50%;
   transform: translate(0, -50%);
-  border-right: 6px solid var(--speaker-accent, #ffd400);
+  border-right: 6px solid var(--speaker-accent, var(--accent, #4fc3f7));
 }
 
 .gaze-hud-across {
-  top: 12px;
+  top: calc(env(safe-area-inset-top, 0px) + 82px);
   left: 50%;
   --hud-tx: -50%;
   --hud-ty: 0;
   transform: translate(-50%, 0);
-  border-top: 6px solid var(--speaker-accent, #ffd400);
+  border-top: 6px solid var(--speaker-accent, var(--accent, #4fc3f7));
 }
 
 .gaze-hud-near {
-  bottom: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
   left: 50%;
   --hud-tx: -50%;
   --hud-ty: 0;
   transform: translate(-50%, 0);
-  border-bottom: 6px solid var(--speaker-accent, #ffd400);
+  border-bottom: 6px solid var(--speaker-accent, var(--accent, #4fc3f7));
 }
 
 .gaze-hud-badge {
@@ -2410,8 +2421,8 @@ button.danger {
 
 .gaze-hud-arrow {
   font-size: 20px;
-  color: var(--speaker-accent, #ffd400);
-  text-shadow: 0 0 8px var(--speaker-accent, #ffd400);
+  color: var(--speaker-accent, var(--accent, #4fc3f7));
+  text-shadow: 0 0 8px var(--speaker-accent, var(--accent, #4fc3f7));
 }
 
 .gaze-hud-name {
@@ -2424,8 +2435,8 @@ button.danger {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background-color: var(--speaker-accent, #ffd400);
-  box-shadow: 0 0 10px var(--speaker-accent, #ffd400);
+  background-color: var(--speaker-accent, var(--accent, #4fc3f7));
+  box-shadow: 0 0 10px var(--speaker-accent, var(--accent, #4fc3f7));
   flex-shrink: 0;
 }
 
@@ -2465,9 +2476,9 @@ button.danger {
 
 .seating-btn.active {
   border: 2px solid #ffffff;
-  background: var(--accent, #ffd400);
+  background: var(--accent, #4fc3f7);
   color: #000000;
-  box-shadow: 0 0 16px rgba(255, 212, 0, 0.4);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent, #4fc3f7) 40%, transparent);
 }
 
 .phone-vu-meter {
@@ -2488,7 +2499,7 @@ button.danger {
 }
 
 .phone-vu-label {
-  color: #ffcc00;
+  color: #4fc3f7;
   transition: color 0.15s ease;
 }
 
@@ -2512,7 +2523,7 @@ button.danger {
 
 .phone-vu-bar {
   height: 100%;
-  background-color: #ffcc00;
+  background-color: #4fc3f7;
   border-radius: 6px;
   transition: width 0.08s ease-out, background-color 0.15s ease;
 }
@@ -2537,12 +2548,12 @@ button.danger {
 
 .active-word-highlight,
 .karaoke-active {
-  background: color-mix(in srgb, var(--accent, #ffd400) 25%, transparent);
-  color: var(--accent, #ffd400);
+  background: color-mix(in srgb, var(--accent, #4fc3f7) 25%, transparent);
+  color: var(--accent, #4fc3f7);
   border-radius: 4px;
   padding: 1px 4px;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #ffd400) 35%, transparent);
-  text-decoration: underline 3px var(--accent, #ffd400);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #4fc3f7) 35%, transparent);
+  text-decoration: underline 3px var(--accent, #4fc3f7);
   text-underline-offset: 4px;
   font-weight: 800;
   display: inline;

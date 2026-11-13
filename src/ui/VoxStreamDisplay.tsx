@@ -42,9 +42,12 @@ function renderSentenceContent(
   }
 
   const { head, tail } = splitActiveWords(text, 3);
+  const trimmedHead = head.trimEnd();
+  const separator = head.slice(trimmedHead.length);
   return (
     <>
-      {head ? highlightAlertWords(head, alertWords, bionic) : null}
+      {trimmedHead ? highlightAlertWords(trimmedHead, alertWords, bionic) : null}
+      {trimmedHead && separator ? separator : null}
       <span className="active-word-highlight karaoke-active">
         {highlightAlertWords(tail, alertWords, bionic)}
       </span>

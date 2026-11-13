@@ -32,11 +32,11 @@ export function GazeHud(): React.JSX.Element | null {
     return () => clearTimeout(timer);
   }, [lastSpeechTimestamp, listening, settings.showGazeHud]);
 
-  // Hidden when disabled, not listening, diagnostics mode, or stale (>6000ms)
+  // Hidden when disabled, not listening, outside table mode, or stale (>6000ms)
   if (!settings.showGazeHud || !listening) {
     return null;
   }
-  if (settings.mode === "diagnostics") {
+  if (settings.mode !== "table") {
     return null;
   }
   if (!lastSpeechTimestamp || Date.now() - lastSpeechTimestamp > 6000) {
@@ -61,7 +61,7 @@ export function GazeHud(): React.JSX.Element | null {
     return null;
   }
 
-  const accentColor = activeSpeaker.color || "var(--accent, #ffd400)";
+  const accentColor = activeSpeaker.color || "var(--accent, #4fc3f7)";
 
   return (
     <aside

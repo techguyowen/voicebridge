@@ -137,7 +137,7 @@ describe("Peripheral Gaze HUD (GazeHud)", () => {
     expect(html).toBe("");
   });
 
-  it("returns null in diagnostics mode", () => {
+  it("only renders in table mode and returns null in classroom, solo, and diagnostics modes", () => {
     upsertSpeaker({ id: "sp_alice", name: "Alice", position: "left" });
     addOrUpdateUtterance({
       id: "u1",
@@ -148,9 +148,34 @@ describe("Peripheral Gaze HUD (GazeHud)", () => {
       final: true,
     });
 
+    setMode("table");
+    expect(renderToStaticMarkup(<GazeHud />)).toContain("gaze-hud-left");
+
+    setMode("classroom");
+    expect(renderToStaticMarkup(<GazeHud />)).toBe("");
+
+    setMode("solo");
+    expect(renderToStaticMarkup(<GazeHud />)).toBe("");
+
     setMode("diagnostics");
+    expect(renderToStaticMarkup(<GazeHud />)).toBe("");
+  });
+
+  it("never uses #ffd400 fallback when speaker color is unset", () => {
+    upsertSpeaker({ id: "sp_nocolor", name: "Pat", position: "left" });
+    addOrUpdateUtterance({
+      id: "u1",
+      speakerId: "sp_nocolor",
+      text: "Testing fallback accent",
+      startMs: 1000,
+      endMs: 2000,
+      final: true,
+    });
+
     const html = renderToStaticMarkup(<GazeHud />);
-    expect(html).toBe("");
+    expect(html).not.toBe("");
+    expect(html).not.toContain("#ffd400");
+    expect(html).toContain("--speaker-accent:");
   });
 
   it("returns null when speech is stale (> 6000ms ago)", () => {

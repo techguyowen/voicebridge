@@ -60,84 +60,49 @@ export function PhoneTransmitter(): React.JSX.Element {
   const currentTurnIdRef = useRef<string | null>(null);
   const turnStartMsRef = useRef<number>(Date.now());
   const lastSpokenTextRef = useRef<string>("");
+  const vuDecayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearVuDecay = () => {
+    if (vuDecayIntervalRef.current !== null) {
+      clearInterval(vuDecayIntervalRef.current);
+      vuDecayIntervalRef.current = null;
+    }
+  };
+
+  const startVuDecay = () => {
+    clearVuDecay();
+    vuDecayIntervalRef.current = setInterval(() => {
+      setAudioLevel((prev) => {
+        if (!micActiveRef.current || !isTransmittingRef.current || isHostMutedRef.current) {
+          clearVuDecay();
+          return 0;
+        }
+        if (prev <= 12) {
+          clearVuDecay();
+          return 12;
+        }
+        return Math.max(12, prev - 10);
+      });
+    }, 80);
+  };
 
   useEffect(() => {
     positionRef.current = position;
   }, [position]);
 
-  // Web Audio VU Meter: Capture RMS energy (0-100) when micActive
+  // Keep VU meter synchronized with mic/transmitting/mute state without opening a competing getUserMedia stream
   useEffect(() => {
-    if (!micActive) {
+    if (!micActive || !isTransmitting || isHostMuted) {
+      clearVuDecay();
       setAudioLevel(0);
       return;
     }
+    setAudioLevel((prev) => (prev < 12 ? 12 : prev));
+  }, [micActive, isTransmitting, isHostMuted]);
 
-    let audioCtx: AudioContext | null = null;
-    let stream: MediaStream | null = null;
-    let animId: number | null = null;
-    let cancelled = false;
-
-    const initAudio = async () => {
-      try {
-        if (typeof window === "undefined") return;
-        const AudioCtxClass =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (!AudioCtxClass) return;
-
-        if (!navigator.mediaDevices?.getUserMedia) return;
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        audioCtx = new AudioCtxClass();
-        if (audioCtx.state === "suspended") {
-          await audioCtx.resume();
-        }
-
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.4;
-        source.connect(analyser);
-
-        const buffer = new Uint8Array(analyser.frequencyBinCount);
-        const updateMeter = () => {
-          if (cancelled) return;
-          analyser.getByteTimeDomainData(buffer);
-          let sum = 0;
-          for (let i = 0; i < buffer.length; i++) {
-            const v = (buffer[i] - 128) / 128;
-            sum += v * v;
-          }
-          const rms = Math.sqrt(sum / buffer.length);
-          const scaled = Math.min(100, Math.round(rms * 280));
-          setAudioLevel(scaled);
-          animId = requestAnimationFrame(updateMeter);
-        };
-
-        animId = requestAnimationFrame(updateMeter);
-      } catch {
-        // Fallback silently if getUserMedia or AudioContext fails in environment
-      }
-    };
-
-    void initAudio();
-
-    return () => {
-      cancelled = true;
-      if (animId) cancelAnimationFrame(animId);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      if (audioCtx) {
-        void audioCtx.close().catch(() => {});
-      }
-      setAudioLevel(0);
-    };
-  }, [micActive]);
+  useEffect(() => {
+    return () => clearVuDecay();
+  }, []);
 
   useEffect(() => {
     isTransmittingRef.current = isTransmitting;
@@ -300,10 +265,42 @@ export function PhoneTransmitter(): React.JSX.Element {
         setMicActive(true);
         if (micModeRef.current === "ptt" || isHostMutedRef.current) {
           setIsTransmitting(false);
+          clearVuDecay();
+          setAudioLevel(0);
         } else {
           setIsTransmitting(true);
+          setAudioLevel((prev) => (prev < 12 ? 12 : prev));
         }
         vibrate(60);
+      };
+
+      rec.onaudiostart = () => {
+        if (!micActiveRef.current || !isTransmittingRef.current || isHostMutedRef.current) {
+          clearVuDecay();
+          setAudioLevel(0);
+          return;
+        }
+        clearVuDecay();
+        setAudioLevel((prev) => (prev < 12 ? 12 : prev));
+      };
+
+      rec.onspeechstart = () => {
+        if (!micActiveRef.current || !isTransmittingRef.current || isHostMutedRef.current) {
+          clearVuDecay();
+          setAudioLevel(0);
+          return;
+        }
+        clearVuDecay();
+        setAudioLevel(78);
+      };
+
+      rec.onspeechend = () => {
+        if (!micActiveRef.current || !isTransmittingRef.current || isHostMutedRef.current) {
+          clearVuDecay();
+          setAudioLevel(0);
+          return;
+        }
+        startVuDecay();
       };
 
       rec.onresult = (e: any) => {
@@ -325,6 +322,10 @@ export function PhoneTransmitter(): React.JSX.Element {
 
           // Only transmit to host if mic is unmuted and not host-muted!
           if (isTransmittingRef.current && !isHostMutedRef.current) {
+            clearVuDecay();
+            setAudioLevel(Math.min(90, 65 + Math.min(25, text.length)));
+            startVuDecay();
+
             const senderId = name.toLowerCase().replace(/\s+/g, "_") || "family_member";
             if (!currentTurnIdRef.current) {
               turnStartMsRef.current = Date.now();
@@ -370,6 +371,8 @@ export function PhoneTransmitter(): React.JSX.Element {
             rec.start();
           } catch {}
         } else {
+          clearVuDecay();
+          setAudioLevel(0);
           finalizeActiveTurn();
           setMicActive(false);
           setIsTransmitting(false);
@@ -385,6 +388,8 @@ export function PhoneTransmitter(): React.JSX.Element {
   };
 
   const stopMic = () => {
+    clearVuDecay();
+    setAudioLevel(0);
     finalizeActiveTurn();
     setMicActive(false);
     setIsTransmitting(false);
@@ -670,21 +675,25 @@ export function PhoneTransmitter(): React.JSX.Element {
           <div
             className="phone-vu-meter"
             role="meter"
-            aria-valuenow={audioLevel}
+            aria-valuenow={!isTransmitting || isHostMuted ? 0 : audioLevel}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-label="Microphone Audio Level"
           >
             <div className="phone-vu-header">
-              <span className={`phone-vu-label ${audioLevel > 15 ? "active" : ""}`}>
-                {audioLevel > 15 ? "🔊 Hearing Speech!" : "🎙️ Listening & Ready"}
+              <span className={`phone-vu-label ${isTransmitting && !isHostMuted && audioLevel > 15 ? "active" : ""}`}>
+                {!isTransmitting || isHostMuted
+                  ? "🔇 Muted / Standby"
+                  : audioLevel > 15
+                    ? "🔊 Hearing Speech!"
+                    : "🎙️ Listening & Ready"}
               </span>
-              <span className="phone-vu-value">{audioLevel}%</span>
+              <span className="phone-vu-value">{!isTransmitting || isHostMuted ? 0 : audioLevel}%</span>
             </div>
             <div className="phone-vu-track">
               <div
-                className={`phone-vu-bar ${audioLevel > 15 ? "phone-vu-live" : ""}`}
-                style={{ width: `${Math.max(4, audioLevel)}%` }}
+                className={`phone-vu-bar ${isTransmitting && !isHostMuted && audioLevel > 15 ? "phone-vu-live" : ""}`}
+                style={{ width: `${!isTransmitting || isHostMuted ? 0 : Math.max(4, audioLevel)}%` }}
               />
             </div>
           </div>
