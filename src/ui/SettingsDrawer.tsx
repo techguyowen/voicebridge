@@ -44,6 +44,7 @@ import {
   setShowJumpToLive,
   setShowExportShelf,
   setShowGazeHud,
+  setShowClassroomCues,
   useStore,
   type EngineChoice,
   type FlashIntensity,
@@ -698,6 +699,14 @@ export function SettingsDrawer({
                   onChange={(e) => setShowExportShelf(e.target.checked)}
                 />
                 <span><strong>Bottom Export Shelf:</strong> Show quick export and copy buttons docked below the screen</span>
+              </label>
+              <label className="checkbox-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showClassroomCues}
+                  onChange={(e) => setShowClassroomCues(e.target.checked)}
+                />
+                <span><strong>Classroom Cue Badges &amp; Catch-Up:</strong> Highlight page numbers, due dates, and questions</span>
               </label>
             </fieldset>
           </div>

@@ -20,7 +20,7 @@ export interface Utterance {
 }
 
 export interface SyncMessage {
-  type: "utterance" | "join" | "leave" | "status" | "kick" | "mute" | "unmute";
+  type: "utterance" | "join" | "leave" | "status" | "kick" | "mute" | "unmute" | "signal";
   room: string;
   senderName: string;
   senderColor?: string;
@@ -28,6 +28,8 @@ export interface SyncMessage {
   pin?: string;
   targetId?: string; // target speaker ID or name
   utterance?: Utterance;
+  signalKind?: "repeat" | "slow-down" | "hold-on" | "chime-in";
+  signalText?: string;
 }
 
 export type AudioSource =

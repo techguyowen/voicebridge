@@ -1,4 +1,14 @@
 import { useState } from "react";
+import { getHostSync } from "../engines/multiDeviceSync";
+
+export type PingSignalKind = "repeat" | "slow-down" | "hold-on" | "chime-in";
+
+export const PING_SIGNALS: Array<{ kind: PingSignalKind; label: string; text: string }> = [
+  { kind: "repeat", label: "🔁 Please repeat that", text: "Please repeat that" },
+  { kind: "slow-down", label: "🐢 Slower please", text: "Slower please" },
+  { kind: "hold-on", label: "✋ Hold on, I'm reading", text: "Hold on, I'm reading" },
+  { kind: "chime-in", label: "🙋 I want to chime in", text: "I want to chime in" },
+];
 
 export const QUICK_REPLY_PRESETS: string[] = [
   "🙋 What page or problem are we on?",
@@ -37,6 +47,7 @@ export function QuickReplyBar({
   const [selected, setSelected] = useState("");
   const [bannerText, setBannerText] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [signalStatus, setSignalStatus] = useState<string | null>(null);
 
   const activeText = customText.trim() ? customText : selected;
 
@@ -52,6 +63,12 @@ export function QuickReplyBar({
   const handleShowBanner = (): void => {
     if (!activeText.trim()) return;
     setBannerText(activeText);
+  };
+
+  const handlePing = (kind: PingSignalKind, text: string): void => {
+    getHostSync()?.sendSignal(kind, text);
+    setSignalStatus("✓ Sent signal to phones");
+    window.setTimeout(() => setSignalStatus(null), 2500);
   };
 
   const showBody = inSheet || !collapsed;
@@ -115,6 +132,29 @@ export function QuickReplyBar({
             <button type="button" className="reply-action" onClick={handleShowBanner} disabled={!activeText.trim()}>
               🖥 Show Big Banner
             </button>
+          </div>
+
+          <div className="ping-phones-section">
+            <div className="ping-phones-title" id="ping-phones-label">
+              📡 Ping Connected Phones
+            </div>
+            <div className="ping-phones-grid" role="group" aria-labelledby="ping-phones-label">
+              {PING_SIGNALS.map((s) => (
+                <button
+                  key={s.kind}
+                  type="button"
+                  className="ping-phone-btn"
+                  onClick={() => handlePing(s.kind, s.text)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            {signalStatus && (
+              <div className="ping-phones-status" role="status">
+                {signalStatus}
+              </div>
+            )}
           </div>
         </>
       )}

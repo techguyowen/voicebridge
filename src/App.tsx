@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AudioSource, TranscriptionEngine } from "./types";
 import { AudioDiagnostics } from "./ui/AudioDiagnostics";
+import { ClassroomCuesModal } from "./ui/ClassroomCuesModal";
 import { Controls } from "./ui/Controls";
 import { ExportButtons } from "./ui/ExportButtons";
 import { PhoneTransmitter } from "./ui/PhoneTransmitter";
@@ -16,6 +17,7 @@ import { TutorialModal } from "./ui/TutorialModal";
 import { TodGuideModal } from "./ui/TodGuideModal";
 import { copyNotesToClipboard, downloadTranscript } from "./ui/export";
 import { createEngine } from "./ui/engineFactory";
+import { extractClassroomCues } from "./engines/cueDetector";
 import { MultiDeviceSync } from "./engines/multiDeviceSync";
 import {
   addOrUpdateUtterance,
@@ -68,6 +70,7 @@ export default function App(): React.JSX.Element {
     audioLevel,
     rogerDisconnected,
     lastAlertMatch,
+    crossTalkSpeakers,
   } = useStore();
   const [drawerOpen, setDrawerOpen] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -81,6 +84,7 @@ export default function App(): React.JSX.Element {
   });
   const [qrOpen, setQrOpen] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
+  const [cuesOpen, setCuesOpen] = useState(false);
   const engineRef = useRef<TranscriptionEngine | null>(null);
   const lastAlertTimestampRef = useRef<number>(0);
   const [alertToastVisible, setAlertToastVisible] = useState(false);
@@ -473,6 +477,10 @@ export default function App(): React.JSX.Element {
     return <PhoneTransmitter />;
   }
 
+  const cueCount = utterances
+    .filter((u) => u.final)
+    .reduce((n, u) => n + extractClassroomCues(u.text).length, 0);
+
   const latest = utterances[utterances.length - 1];
   const activeSpeaker =
     speakers.find((s) => s.id === (latest?.speakerId ?? currentSpeakerId)) ?? speakers[0];
@@ -654,6 +662,15 @@ export default function App(): React.JSX.Element {
               >
                 📥 Export
               </button>
+              <button
+                type="button"
+                className="icon-btn classroom-cues-btn"
+                onClick={() => setCuesOpen(true)}
+                title="Classroom cues and catch-up"
+                aria-label={`Open classroom cues${cueCount > 0 ? `, ${cueCount} cues` : ""}`}
+              >
+                📌 Cues{cueCount > 0 ? ` (${cueCount})` : ""}
+              </button>
             </>
           )}
           <button
@@ -780,6 +797,12 @@ export default function App(): React.JSX.Element {
 
       {settings.mode !== "diagnostics" && <SpotlightBanner />}
 
+      {settings.mode === "table" && crossTalkSpeakers.length >= 2 && (
+        <div className="crosstalk-banner" role="status">
+          💬 Talking at once: {crossTalkSpeakers.join(" & ")}
+        </div>
+      )}
+
       {rogerDisconnected && (
         <div className="roger-disconnect-banner" role="alert">
           <span>⚠️ <strong>Roger Neckloop Disconnected:</strong> Check loop connection or power. Room mic is NOT active.</span>
@@ -852,6 +875,8 @@ export default function App(): React.JSX.Element {
       )}
 
       {qrOpen && <QrModal onClose={() => setQrOpen(false)} />}
+
+      {cuesOpen && <ClassroomCuesModal onClose={() => setCuesOpen(false)} />}
 
       {tutorialOpen && (
         <TutorialModal

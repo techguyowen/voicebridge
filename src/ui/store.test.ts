@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Utterance } from "../types";
 import { toHtml, toMarkdown } from "./ExportButtons";
 import { groupUtterancesByTurn, highlightAlertWords } from "./TranscriptList";
@@ -48,6 +48,7 @@ import {
   setShowJumpToLive,
   setShowExportShelf,
   setShowGazeHud,
+  setShowClassroomCues,
   setShowKeywordAlerts,
   setShowOnGlassControls,
   setShowQuickReply,
@@ -1456,5 +1457,104 @@ describe("default theme is white-on-black", () => {
     const sp = getState().speakers.find((s) => s.id === id);
     expect(sp?.color).toBe("#4fc3f7");
     expect(sp?.color).not.toBe("#ffd400");
+  });
+});
+
+describe("showClassroomCues setting", () => {
+  it("defaults to true", () => {
+    expect(getState().settings.showClassroomCues).toBe(true);
+  });
+
+  it("setShowClassroomCues updates settings", () => {
+    setShowClassroomCues(false);
+    expect(getState().settings.showClassroomCues).toBe(false);
+    setShowClassroomCues(true);
+    expect(getState().settings.showClassroomCues).toBe(true);
+  });
+
+  it("loadSettings parses showClassroomCues and defaults missing values to true", () => {
+    const storage = new Map<string, string>();
+    storage.set("alt.settings.v3", JSON.stringify({ showClassroomCues: false }));
+    const mockLocalStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, v),
+      removeItem: (k: string) => storage.delete(k),
+      clear: () => storage.clear(),
+      key: (i: number) => Array.from(storage.keys())[i] ?? null,
+      get length() {
+        return storage.size;
+      },
+    };
+    const prevStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage = mockLocalStorage as unknown as Storage;
+    try {
+      expect(loadSettings().showClassroomCues).toBe(false);
+      storage.set("alt.settings.v3", JSON.stringify({}));
+      expect(loadSettings().showClassroomCues).toBe(true);
+    } finally {
+      if (prevStorage !== undefined) {
+        (globalThis as unknown as { localStorage: Storage }).localStorage = prevStorage;
+      } else {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      }
+    }
+  });
+});
+
+describe("crossTalkSpeakers", () => {
+  it("defaults to an empty array", () => {
+    expect(getState().crossTalkSpeakers).toEqual([]);
+  });
+
+  it("stays empty when only one speaker is active", () => {
+    upsertSpeaker({ id: "s1", name: "Alice" });
+    addOrUpdateUtterance(utter("u1", "Hello", "s1", true));
+    addOrUpdateUtterance(utter("u2", "Still me talking", "s1", true));
+    expect(getState().crossTalkSpeakers).toEqual([]);
+  });
+
+  it("lists resolved speaker names when two speakers talk within 2000ms", () => {
+    upsertSpeaker({ id: "s1", name: "Alice" });
+    upsertSpeaker({ id: "s2", name: "Bob" });
+    addOrUpdateUtterance(utter("u1", "Hello", "s1", true));
+    expect(getState().crossTalkSpeakers).toEqual([]);
+    addOrUpdateUtterance(utter("u2", "Hi there", "s2", true));
+    expect(getState().crossTalkSpeakers).toEqual(["Alice", "Bob"]);
+  });
+
+  it("drops speakers whose activity is older than 2000ms", () => {
+    vi.useFakeTimers();
+    try {
+      const start = new Date("2026-01-01T00:00:00Z").getTime();
+      vi.setSystemTime(start);
+      upsertSpeaker({ id: "s1", name: "Alice" });
+      upsertSpeaker({ id: "s2", name: "Bob" });
+      addOrUpdateUtterance(utter("u1", "Hello", "s1", true));
+      vi.setSystemTime(start + 2500);
+      addOrUpdateUtterance(utter("u2", "Hi there", "s2", true));
+      expect(getState().crossTalkSpeakers).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clear() resets crossTalkSpeakers", () => {
+    upsertSpeaker({ id: "s1", name: "Alice" });
+    upsertSpeaker({ id: "s2", name: "Bob" });
+    addOrUpdateUtterance(utter("u1", "Hello", "s1", true));
+    addOrUpdateUtterance(utter("u2", "Hi there", "s2", true));
+    expect(getState().crossTalkSpeakers).toHaveLength(2);
+    clear();
+    expect(getState().crossTalkSpeakers).toEqual([]);
+  });
+
+  it("resetStore() resets crossTalkSpeakers", () => {
+    upsertSpeaker({ id: "s1", name: "Alice" });
+    upsertSpeaker({ id: "s2", name: "Bob" });
+    addOrUpdateUtterance(utter("u1", "Hello", "s1", true));
+    addOrUpdateUtterance(utter("u2", "Hi there", "s2", true));
+    expect(getState().crossTalkSpeakers).toHaveLength(2);
+    resetStore();
+    expect(getState().crossTalkSpeakers).toEqual([]);
   });
 });

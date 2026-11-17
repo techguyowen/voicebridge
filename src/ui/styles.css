@@ -2560,3 +2560,238 @@ button.danger {
   transition: all 0.15s ease-out;
 }
 
+/* ==========================================================================
+   Classroom cues, cross-talk, and two-way table signals
+   ========================================================================== */
+
+.cue-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.cue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent, #4fc3f7) 18%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.cues-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.cues-modal {
+  width: min(640px, 100%);
+  max-height: 88dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-solid);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.cues-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cues-modal-head h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.cues-modal-close {
+  min-height: 44px;
+  min-width: 44px;
+  flex-shrink: 0;
+}
+
+.cues-modal-body {
+  padding: 14px 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cues-modal-body h3 {
+  margin: 0 0 8px;
+  font-size: 19px;
+}
+
+.cues-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cues-section-head h3 {
+  margin: 0;
+}
+
+.cues-copy-btn,
+.cues-summarize-btn {
+  min-height: 44px;
+  border: 1px solid var(--border);
+}
+
+.cues-toast {
+  margin-top: 8px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.cues-empty {
+  margin: 4px 0;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+.cues-list,
+.cues-catchup-list,
+.cues-summary-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cues-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cues-meta {
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.cues-catchup-item {
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.cues-catchup-speaker {
+  color: var(--accent, #4fc3f7);
+}
+
+.cues-error {
+  margin-top: 10px;
+  font-weight: 700;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.cues-summary-list li {
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.crosstalk-banner {
+  align-self: center;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel-solid);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 17px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.phone-signal-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--panel-solid);
+  color: var(--fg);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 19px;
+  font-weight: 800;
+  box-shadow: var(--shadow);
+}
+
+.phone-signal-text {
+  flex: 1;
+}
+
+.phone-signal-dismiss {
+  min-height: 44px;
+  min-width: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+
+.ping-phones-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ping-phones-title {
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.ping-phones-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ping-phone-btn {
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.ping-phones-status {
+  margin-top: 8px;
+  font-weight: 700;
+}
+

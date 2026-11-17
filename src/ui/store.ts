@@ -60,6 +60,7 @@ export interface Settings {
   showJumpToLive: boolean;
   showExportShelf: boolean;
   showGazeHud: boolean;
+  showClassroomCues: boolean;
 }
 
 export interface StoreState {
@@ -79,6 +80,7 @@ export interface StoreState {
   /** Epoch ms of the last speech received (final or interim). */
   lastSpeechTimestamp: number;
   rogerDisconnected: boolean;
+  crossTalkSpeakers: string[];
 }
 
 /** Window during which a null-speaker utterance inherits the held turn. */
@@ -147,6 +149,7 @@ const DEFAULT_SETTINGS: Settings = {
   showJumpToLive: true,
   showExportShelf: false,
   showGazeHud: true,
+  showClassroomCues: true,
 };
 
 export function clampFont(px: number): number {
@@ -236,6 +239,7 @@ export function loadSettings(): Settings {
     showJumpToLive: raw.showJumpToLive !== undefined ? Boolean(raw.showJumpToLive) : true,
     showExportShelf: raw.showExportShelf !== undefined ? Boolean(raw.showExportShelf) : false,
     showGazeHud: raw.showGazeHud !== undefined ? Boolean(raw.showGazeHud) : true,
+    showClassroomCues: raw.showClassroomCues !== undefined ? Boolean(raw.showClassroomCues) : true,
   };
 
   if (typeof window !== "undefined") {
@@ -301,7 +305,32 @@ let state: StoreState = {
   currentSpeakerId: persisted.speakers[0]?.id ?? "s1",
   lastSpeechTimestamp: 0,
   rogerDisconnected: false,
+  crossTalkSpeakers: [],
 };
+
+/** Recent speakerId activity used for live cross-talk awareness (pruned to 2000ms). */
+const speakerActivity = new Map<SpeakerId, number>();
+
+export const CROSSTALK_WINDOW_MS = 2000;
+
+function updateCrossTalk(speakers: Speaker[], speakerId: SpeakerId | null): string[] {
+  const now = Date.now();
+  for (const [id, ts] of speakerActivity.entries()) {
+    if (now - ts > CROSSTALK_WINDOW_MS) {
+      speakerActivity.delete(id);
+    }
+  }
+  if (speakerId) {
+    speakerActivity.set(speakerId, now);
+  }
+  if (speakerActivity.size < 2) return [];
+  const names: string[] = [];
+  for (const id of speakerActivity.keys()) {
+    const found = speakers.find((sp) => sp.id === id);
+    names.push(found ? found.name : id);
+  }
+  return names;
+}
 
 const listeners = new Set<() => void>();
 
@@ -386,6 +415,7 @@ export function addOrUpdateUtterance(u: Utterance): void {
     // Advance the conversational turn.
     const currentSpeakerId = effective.speakerId ?? s.currentSpeakerId;
     const lastSpeechTimestamp = Date.now();
+    const crossTalkSpeakers = updateCrossTalk(speakers, effective.speakerId);
     const found = s.utterances.some((x) => x.id === effective.id);
     const existing = found ? s.utterances.find((x) => x.id === effective.id) : undefined;
     const merged: Utterance = existing?.starred !== undefined ? { ...effective, starred: effective.starred ?? existing.starred } : effective;
@@ -439,7 +469,7 @@ export function addOrUpdateUtterance(u: Utterance): void {
       }
     }
 
-    return { ...s, speakers, utterances, latestSpeakerId, flashActive, lastAlertMatch, currentSpeakerId, lastSpeechTimestamp };
+    return { ...s, speakers, utterances, latestSpeakerId, flashActive, lastAlertMatch, currentSpeakerId, lastSpeechTimestamp, crossTalkSpeakers };
   });
 }
 
@@ -559,6 +589,10 @@ export function setShowExportShelf(showExportShelf: boolean): void {
 
 export function setShowGazeHud(showGazeHud: boolean): void {
   update((s) => ({ ...s, settings: { ...s.settings, showGazeHud } }));
+}
+
+export function setShowClassroomCues(showClassroomCues: boolean): void {
+  update((s) => ({ ...s, settings: { ...s.settings, showClassroomCues } }));
 }
 
 export function relabel(ids: string[], speakerId: SpeakerId): void {
@@ -931,7 +965,8 @@ export function setListening(listening: boolean): void {
 }
 
 export function clear(): void {
-  update((s) => ({ ...s, utterances: [] }));
+  speakerActivity.clear();
+  update((s) => ({ ...s, utterances: [], crossTalkSpeakers: [] }));
 }
 
 export function clearInterimUtterances(): void {
@@ -954,6 +989,7 @@ export function setRogerDisconnected(rogerDisconnected: boolean): void {
 }
 
 export function resetStore(): void {
+  speakerActivity.clear();
   state = {
     speakers: [...DEFAULT_SPEAKERS],
     utterances: [],
@@ -973,6 +1009,7 @@ export function resetStore(): void {
     currentSpeakerId: DEFAULT_SPEAKERS[0]?.id ?? "s1",
     lastSpeechTimestamp: 0,
     rogerDisconnected: false,
+    crossTalkSpeakers: [],
   };
   persist();
   listeners.forEach((l) => l());

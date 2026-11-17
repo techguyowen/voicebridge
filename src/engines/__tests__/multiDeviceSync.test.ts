@@ -273,6 +273,56 @@ describe("MultiDeviceSync", () => {
     expect((sync as any).messageQueue).toHaveLength(0);
   });
 
+  it("sends table signals with signalKind, signalText, and room pin", () => {
+    const sync = new MultiDeviceSync("TABLE-SIGNAL", { isHost: true, pin: "4321" });
+    const sentMessages: any[] = [];
+    (sync as any).channel = {
+      postMessage: (msg: any) => sentMessages.push(msg),
+      close: () => {},
+    };
+
+    sync.sendSignal("repeat", "Please repeat that");
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]?.type).toBe("signal");
+    expect(sentMessages[0]?.senderName).toBe("Tablet");
+    expect(sentMessages[0]?.signalKind).toBe("repeat");
+    expect(sentMessages[0]?.signalText).toBe("Please repeat that");
+    expect(sentMessages[0]?.pin).toBe("4321");
+
+    sync.destroy();
+  });
+
+  it("sends each supported signal kind from the tablet", () => {
+    const sync = new MultiDeviceSync("TABLE-SIGNAL", { isHost: true, pin: "4321" });
+    const sentMessages: any[] = [];
+    (sync as any).channel = {
+      postMessage: (msg: any) => sentMessages.push(msg),
+      close: () => {},
+    };
+
+    const signals = [
+      ["repeat", "Please repeat that"],
+      ["slow-down", "Slower please"],
+      ["hold-on", "Hold on, I'm reading"],
+      ["chime-in", "I want to chime in"],
+    ] as const;
+    for (const [kind, text] of signals) {
+      sync.sendSignal(kind, text);
+    }
+
+    expect(sentMessages).toHaveLength(4);
+    expect(sentMessages.map((m) => m.signalKind)).toEqual([
+      "repeat",
+      "slow-down",
+      "hold-on",
+      "chime-in",
+    ]);
+    expect(sentMessages.every((m) => m.type === "signal" && m.senderName === "Tablet")).toBe(true);
+
+    sync.destroy();
+  });
+
   it("sends kick and mute messages with correct targetId and sender", () => {
     const sync = new MultiDeviceSync("TABLE-KICK", { isHost: true, pin: "4321" });
     const sentMessages: any[] = [];

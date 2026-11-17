@@ -45,6 +45,11 @@ export function PhoneTransmitter(): React.JSX.Element {
   const [lastSpoken, setLastSpoken] = useState("");
   const [connectionStatus, setConnectionStatus] = useState("Connecting to tablet...");
   const [errorMessage, setErrorMessage] = useState("");
+  const [incomingSignal, setIncomingSignal] = useState<{
+    text: string;
+    kind?: "repeat" | "slow-down" | "hold-on" | "chime-in";
+    ts: number;
+  } | null>(null);
 
   const syncRef = useRef<MultiDeviceSync | null>(null);
   const recRef = useRef<any>(null);
@@ -184,6 +189,20 @@ export function PhoneTransmitter(): React.JSX.Element {
         msg.targetId === curName ||
         msg.targetId === "all";
 
+      if (msg.type === "signal") {
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+          try {
+            navigator.vibrate([120, 60, 120]);
+          } catch {}
+        }
+        setIncomingSignal({
+          text: msg.signalText || "Attention requested",
+          kind: msg.signalKind,
+          ts: Date.now(),
+        });
+        return;
+      }
+
       if (msg.type === "kick" && isTarget) {
         stopMicRef.current();
         setIsKicked(true);
@@ -218,6 +237,13 @@ export function PhoneTransmitter(): React.JSX.Element {
       sync.destroy();
     };
   }, [room, name, color, pin]);
+
+  // Auto-clear an incoming tablet signal after 8s
+  useEffect(() => {
+    if (!incomingSignal) return;
+    const timer = setTimeout(() => setIncomingSignal(null), 8000);
+    return () => clearTimeout(timer);
+  }, [incomingSignal]);
 
   const vibrate = (pattern: number | number[]) => {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
@@ -516,6 +542,23 @@ export function PhoneTransmitter(): React.JSX.Element {
           ● {connectionStatus}
         </div>
       </header>
+
+      {/* Tablet signal banner (two-way table signals) */}
+      {incomingSignal && (
+        <div className="phone-signal-banner" role="alert">
+          <span className="phone-signal-text">
+            📡 Tablet: {incomingSignal.text}
+          </span>
+          <button
+            type="button"
+            className="phone-signal-dismiss"
+            onClick={() => setIncomingSignal(null)}
+            aria-label="Dismiss tablet signal"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Disconnected / Kicked Banner */}
       {isKicked && (

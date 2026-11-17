@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Utterance } from "../types";
+import { extractClassroomCues } from "../engines/cueDetector";
 import { highlightAlertWords } from "./TranscriptList";
 import { copyNotesToClipboard, downloadTranscript } from "./export";
 import {
@@ -314,6 +315,8 @@ export function VoxStreamDisplay(): React.JSX.Element {
               ? speakers.find((s) => s.id === u.speakerId)
               : undefined;
 
+          const cues = settings.showClassroomCues !== false ? extractClassroomCues(u.text) : [];
+
           return (
             <div key={u.id} className="vox-line-stabilizer line-stabilized-container">
               <div className={classNames} data-utterance-id={u.id} data-text={u.text}>
@@ -334,6 +337,15 @@ export function VoxStreamDisplay(): React.JSX.Element {
                   </span>
                 )}
                 {renderSentenceContent(u.text, isActive, settings.alertWords, settings.bionicReading)}
+                {cues.length > 0 && (
+                  <span className="cue-badges" aria-label="Classroom cues">
+                    {cues.map((cue, i) => (
+                      <span key={`${cue.kind}-${cue.label}-${i}`} className={`cue-badge cue-${cue.kind}`}>
+                        {cue.icon} {cue.label}
+                      </span>
+                    ))}
+                  </span>
+                )}
               </div>
             </div>
           );

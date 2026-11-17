@@ -258,6 +258,10 @@ export class MultiDeviceSync {
     });
   }
 
+  public sendSignal(signalKind: "repeat" | "slow-down" | "hold-on" | "chime-in", signalText: string): void {
+    this.send({ type: "signal", senderName: "Tablet", signalKind, signalText, pin: this.pin });
+  }
+
   destroy(): void {
     this.isDestroyed = true;
     if (hostSyncInstance === this) {
