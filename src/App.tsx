@@ -201,7 +201,10 @@ export default function App(): React.JSX.Element {
   }, []);
 
   // Check if current device is a mobile phone transmitter joined via QR
-  const urlParams = new URLSearchParams(window.location.search);
+  // (hash fragment first, query string for backward compatibility)
+  const urlParams = new URLSearchParams(
+    window.location.hash ? window.location.hash.replace(/^#/, "") : window.location.search
+  );
   const isPhoneTransmitter = urlParams.get("role") === "mic" || urlParams.get("mode") === "mic";
 
   // Immediately purge any legacy stuck interim utterances on mount
@@ -231,25 +234,35 @@ export default function App(): React.JSX.Element {
       const msgPin = (msg.pin || "").trim().toLowerCase();
       if (hostPin && msgPin !== hostPin) return;
 
-      const speakerId = msg.utterance?.speakerId || (msg.senderName ? msg.senderName.toLowerCase().replace(/\s+/g, "_") : "family_member");
-      const speakerName = msg.senderName || (msg.utterance?.speakerId ? msg.utterance.speakerId : "Family Member");
+      const rawName = typeof msg.senderName === "string" ? msg.senderName.trim().slice(0, 40) : "";
+      const speakerName = rawName || "Family Member";
+      const speakerId = msg.utterance?.speakerId || (rawName ? rawName.toLowerCase().replace(/\s+/g, "_") : "family_member");
+      const senderColor = typeof msg.senderColor === "string" && /^#[0-9a-fA-F]{6}$/.test(msg.senderColor)
+        ? msg.senderColor
+        : "#4fc3f7";
 
       if (msg.type === "join" || msg.type === "utterance") {
+        if (getState().speakers.length >= 20 && !getState().speakers.some((s) => s.id === speakerId)) {
+          return;
+        }
         upsertSpeaker({
           id: speakerId,
           name: speakerName,
-          color: msg.senderColor || "#4fc3f7",
+          color: senderColor,
           position: msg.senderPosition || "none",
         });
       }
 
       if (msg.type === "utterance" && msg.utterance) {
+        if (typeof msg.utterance.text !== "string") return;
+        const text = msg.utterance.text.slice(0, 1000);
         const uSpeakerId = msg.utterance.speakerId || speakerId;
         if (getState().mutedSpeakerIds.includes(uSpeakerId)) {
           return;
         }
         addOrUpdateUtterance({
           ...msg.utterance,
+          text,
           speakerId: uSpeakerId,
         });
       }

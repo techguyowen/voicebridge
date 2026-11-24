@@ -22,10 +22,23 @@ function setStored(key: string, value: string): void {
 }
 
 export function PhoneTransmitter(): React.JSX.Element {
-  const urlSearch = typeof window !== "undefined" ? window.location.search : "";
+  const urlSearch =
+    typeof window !== "undefined"
+      ? window.location.hash
+        ? window.location.hash.replace(/^#/, "")
+        : window.location.search
+      : "";
   const urlParams = new URLSearchParams(urlSearch);
   const room = urlParams.get("room") || getStored("alt.phone.room", "TABLE-101");
   const [pin, setPin] = useState(() => urlParams.get("pin") || getStored("alt.phone.pin", ""));
+
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && window.location.hash.includes("pin=")) {
+        window.history.replaceState(null, "", `${window.location.pathname}#role=mic&room=${encodeURIComponent(room)}`);
+      }
+    } catch {}
+  }, [room]);
   const [name, setName] = useState(() => getStored("alt.phone.name", "Family Member"));
   const [color, setColor] = useState(() => getStored("alt.phone.color", "#4fc3f7"));
   const [position, setPosition] = useState<SeatingPosition>(() => {

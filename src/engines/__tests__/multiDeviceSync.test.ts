@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MultiDeviceSync, type SyncMessage } from "../multiDeviceSync";
+import { decryptPayload, E2EE_PREFIX } from "../syncCrypto";
 
 describe("MultiDeviceSync", () => {
   it("initializes room and registers handler", () => {
@@ -127,11 +128,13 @@ describe("MultiDeviceSync", () => {
 
     // Mock fetch to track remote publications
     const publishedPayloads: string[] = [];
+    const publishedHeaders: Array<Record<string, string>> = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
       if (init?.body && typeof init.body === "string") {
         publishedPayloads.push(init.body);
       }
+      publishedHeaders.push((init?.headers ?? {}) as Record<string, string>);
       return { ok: true, status: 200 } as Response;
     });
 
@@ -164,30 +167,47 @@ describe("MultiDeviceSync", () => {
         ws.onopen(new Event("open"));
       }
 
-      // Wait a tick for async publishRemote to fire
-      await new Promise((r) => setTimeout(r, 10));
-
-      expect(publishedPayloads.length).toBeGreaterThanOrEqual(2);
-      const parsed = publishedPayloads.map((p) => JSON.parse(p));
+      // Wait for async publishRemote (incl. PBKDF2 key derivation) to fire
+      await vi.waitFor(() => {
+        expect(publishedPayloads.length).toBeGreaterThanOrEqual(2);
+      });
+      // Payloads are E2EE-encrypted; decrypt before asserting.
+      for (const p of publishedPayloads) {
+        expect(p.startsWith(E2EE_PREFIX)).toBe(true);
+      }
+      const decrypted = await Promise.all(
+        publishedPayloads.map((p) => decryptPayload(p, "TABLE-Q1", "1111"))
+      );
+      const parsed = decrypted.map((p) => JSON.parse(p as string));
       expect(parsed.some((m) => m.type === "join" && m.senderName === "Alice")).toBe(true);
       expect(parsed.some((m) => m.type === "utterance" && m.utterance?.text === "Hello everyone")).toBe(true);
+      // ntfy relay must not cache message contents server-side.
+      expect(publishedHeaders.length).toBeGreaterThanOrEqual(2);
+      for (const h of publishedHeaders) {
+        expect(h["Cache"]).toBe("no");
+      }
 
       // Reconnect simulation: trigger onclose then onopen again
       publishedPayloads.length = 0;
       if (ws && typeof ws.onopen === "function") {
         ws.onopen(new Event("open"));
       }
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.waitFor(() => {
+        expect(publishedPayloads.length).toBeGreaterThanOrEqual(1);
+      });
 
       // Join packet should be resent upon reconnect
-      expect(publishedPayloads.some((p) => JSON.parse(p).type === "join")).toBe(true);
+      const reconnected = await Promise.all(
+        publishedPayloads.map((p) => decryptPayload(p, "TABLE-Q1", "1111"))
+      );
+      expect(reconnected.some((p) => JSON.parse(p as string).type === "join")).toBe(true);
     } finally {
       globalThis.fetch = origFetch;
       sync.destroy();
     }
   });
 
-  it("handles incoming WebSocket message events and ignores own echoes", () => {
+  it("handles incoming WebSocket message events and ignores own echoes", async () => {
     const sync = new MultiDeviceSync("TABLE-ECHO", { isHost: true, pin: "0000" });
     const received: SyncMessage[] = [];
     sync.onMessage((m) => received.push(m));
@@ -213,7 +233,7 @@ describe("MultiDeviceSync", () => {
     };
 
     if (ws && typeof ws.onmessage === "function") {
-      ws.onmessage(
+      await ws.onmessage(
         new MessageEvent("message", {
           data: JSON.stringify({
             event: "message",
@@ -242,7 +262,7 @@ describe("MultiDeviceSync", () => {
     };
 
     if (ws && typeof ws.onmessage === "function") {
-      ws.onmessage(
+      await ws.onmessage(
         new MessageEvent("message", {
           data: JSON.stringify({
             event: "message",
@@ -256,6 +276,41 @@ describe("MultiDeviceSync", () => {
     // Length should still be 1 (self echo was ignored!)
     expect(received).toHaveLength(1);
 
+    sync.destroy();
+  });
+
+  it("decrypts E2EE relay messages and drops undecryptable payloads", async () => {
+    const { encryptPayload } = await import("../syncCrypto");
+    const sync = new MultiDeviceSync("TABLE-E2E", { isHost: true, pin: "2468" });
+    const received: SyncMessage[] = [];
+    sync.onMessage((m) => received.push(m));
+    const ws = (sync as any).ws;
+
+    const msg: SyncMessage & { _senderId: string } = {
+      type: "utterance",
+      room: "TABLE-E2E",
+      senderName: "Dad",
+      pin: "2468",
+      _senderId: "other-client-1",
+      utterance: { id: "e2e-1", text: "Encrypted hello", startMs: 1, endMs: 2, speakerId: "dad", final: true },
+    };
+    const encrypted = await encryptPayload(JSON.stringify(msg), "TABLE-E2E", "2468");
+    await ws.onmessage(
+      new MessageEvent("message", {
+        data: JSON.stringify({ event: "message", topic: "vb-tablee2e-2468", message: encrypted }),
+      })
+    );
+    expect(received).toHaveLength(1);
+    expect(received[0]?.utterance?.text).toBe("Encrypted hello");
+
+    // Tampered ciphertext must be dropped silently.
+    const tampered = encrypted.slice(0, -2) + (encrypted.endsWith("AA") ? "BB" : "AA");
+    await ws.onmessage(
+      new MessageEvent("message", {
+        data: JSON.stringify({ event: "message", topic: "vb-tablee2e-2468", message: tampered }),
+      })
+    );
+    expect(received).toHaveLength(1);
     sync.destroy();
   });
 

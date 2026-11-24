@@ -213,7 +213,9 @@ function ApiKeyField({
 }
 
 function testGemini(key: string): Promise<Response> {
-  return fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models`, {
+    headers: { "x-goog-api-key": key },
+  });
 }
 
 function testDeepgram(key: string): Promise<Response> {

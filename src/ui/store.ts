@@ -98,15 +98,28 @@ export const DEFAULT_SPEAKERS: Speaker[] = [];
 
 const ROOM_CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
+function secureRandomInts(count: number): Uint32Array | null {
+  try {
+    if (typeof globalThis.crypto?.getRandomValues === "function") {
+      return globalThis.crypto.getRandomValues(new Uint32Array(count));
+    }
+  } catch {}
+  return null;
+}
+
 export function generateRoomCode(): string {
+  const rand = secureRandomInts(6);
   let code = "";
   for (let i = 0; i < 6; i++) {
-    code += ROOM_CODE_CHARS.charAt(Math.floor(Math.random() * ROOM_CODE_CHARS.length));
+    const n = rand ? (rand[i] as number) % ROOM_CODE_CHARS.length : Math.floor(Math.random() * ROOM_CODE_CHARS.length);
+    code += ROOM_CODE_CHARS.charAt(n);
   }
   return `TABLE-${code}`;
 }
 
 export function generateRoomPin(): string {
+  const rand = secureRandomInts(1);
+  if (rand) return (1000 + ((rand[0] as number) % 9000)).toString();
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
 

@@ -1,4 +1,15 @@
 import type { SyncMessage } from "../types";
+import { decryptPayload, encryptPayload } from "./syncCrypto";
+
+function secureRandomHex(bytes: number): string {
+  try {
+    if (typeof globalThis.crypto?.getRandomValues === "function") {
+      const arr = globalThis.crypto.getRandomValues(new Uint8Array(bytes));
+      return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
+    }
+  } catch {}
+  return Math.random().toString(36).substring(2, 2 + bytes * 2);
+}
 
 export type { SyncMessage };
 export type SyncMessageHandler = (msg: SyncMessage) => void;
@@ -47,7 +58,7 @@ export class MultiDeviceSync {
     if (this.isHost) {
       hostSyncInstance = this;
     }
-    this.clientId = `client-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    this.clientId = `client-${Date.now()}-${secureRandomHex(4)}`;
 
     const cleanRoom = (this.room || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "default";
     const cleanPin = (this.pin || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
@@ -119,12 +130,14 @@ export class MultiDeviceSync {
         }
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         if (this.isDestroyed) return;
         try {
           const data = typeof event.data === "string" ? JSON.parse(event.data) : null;
           if (data && data.event === "message" && data.message) {
-            const msg = JSON.parse(data.message) as SyncMessage & { _senderId?: string };
+            const decrypted = await decryptPayload(data.message, this.room, this.pin);
+            if (decrypted === null) return;
+            const msg = JSON.parse(decrypted) as SyncMessage & { _senderId?: string };
             if (msg && msg.room === this.room && (!msg._senderId || msg._senderId !== this.clientId)) {
               this.notifyMessage(msg);
             }
@@ -206,10 +219,11 @@ export class MultiDeviceSync {
     try {
       const topic = this.getTopic();
       if (typeof fetch !== "undefined") {
+        const body = await encryptPayload(JSON.stringify(msg), this.room, this.pin);
         await fetch(`https://ntfy.sh/${topic}`, {
           method: "POST",
-          headers: { "Content-Type": "text/plain" },
-          body: JSON.stringify(msg),
+          headers: { "Content-Type": "text/plain", "Cache": "no" },
+          body,
         });
       }
     } catch {}
@@ -221,7 +235,7 @@ export class MultiDeviceSync {
       room: this.room,
       pin: msg.pin || this.pin,
       _senderId: this.clientId,
-      _msgId: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      _msgId: `${Date.now()}-${secureRandomHex(4)}`,
     };
 
     // If join packet, remember it so connect/reconnect automatically resends it

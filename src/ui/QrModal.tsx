@@ -12,7 +12,7 @@ export function QrModal({ onClose }: { onClose: () => void }): React.JSX.Element
   const { settings, speakers, mutedSpeakerIds } = useStore();
   const [qrUrl, setQrUrl] = useState<string>("");
 
-  const joinUrl = `${window.location.origin}${window.location.pathname}?role=mic&room=${settings.roomCode}&pin=${settings.roomPin}`;
+  const joinUrl = `${window.location.origin}${window.location.pathname}#role=mic&room=${encodeURIComponent(settings.roomCode)}&pin=${encodeURIComponent(settings.roomPin)}`;
 
   useEffect(() => {
     async function makeQr() {
